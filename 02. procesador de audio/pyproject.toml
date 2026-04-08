@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "procesador"
+version = "0.1.0"
+description = "Convierte audio a 16kHz mono-canal, limpia ruido y aplica VAD (Voice Activity Detection)"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "soundfile>=0.12",
+    "noisereduce>=3.0",
+    "silero-vad>=5.1",
+]
+
+[project.scripts]
+procesar = "procesador.__main__:main"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
