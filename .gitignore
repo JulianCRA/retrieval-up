@@ -10,5 +10,6 @@ __pycache__/
 
 data/
 outputs/
+descargas/
 
 *.egg-info/
