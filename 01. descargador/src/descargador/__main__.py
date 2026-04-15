@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
+from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError, ExtractorError
 
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".opus", ".wma", ".aac"}
 VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".wmv"}
@@ -97,7 +99,10 @@ def leer_directorio(ruta):
 def procesar_archivo(ruta):
     # TODO : revisar que el contenido no exista ya en la carpeta de descargas, o que no se haya descargado antes
     with YoutubeDL(OPTS) as ydl:
-        info = ydl.extract_info(ruta.as_uri(), download=True)
+        try:
+            info = ydl.extract_info(ruta.as_uri(), download=True)
+        except (DownloadError, ExtractorError) as e:
+            sys.exit(1)
 
 def procesar_batch(batch):
     if batch:
@@ -112,8 +117,6 @@ def validar_url(u: str) -> bool:
     p = urlparse(u)
     return p.scheme in ("http", "https") and bool(p.netloc)
 
-from yt_dlp import YoutubeDL
-
 def procesar_fuente_remota(url):
     if not validar_url(url):
         print(f"Error: '{url}' no es una URL válida.")
@@ -122,7 +125,10 @@ def procesar_fuente_remota(url):
     print(f"Descargando desde URL remota: {url}")
 
     with YoutubeDL(OPTS) as ydl:
-        info = ydl.extract_info(url, download=True)
+        try:
+            info = ydl.extract_info(url, download=True)
+        except (DownloadError, ExtractorError) as e:
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()
