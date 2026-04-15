@@ -1,46 +1,51 @@
 import json
-from pathlib import Path
 from .rutas import ARCHIVO_REGISTRO
 
-def cargar_registros():
-    if ARCHIVO_REGISTRO.exists():
-        with open(ARCHIVO_REGISTRO, "r", encoding="utf-8") as f:
+def cargar_archivo(ruta):
+    try:
+        with open(ruta, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {}
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        return {}
+    
+def guardar_archivo(ruta, datos):
+    try:
+        with open(ruta, "w", encoding="utf-8") as f:
+            json.dump(datos, f, indent=4, ensure_ascii=False)
+    except IOError as e:
+        print(f"Error al guardar el archivo {ruta}: {e}")
 
-def obtener_status(hash):
-    registros = cargar_registros()
-    if hash in registros:
-        return registros[hash]["status"]
-    return None
 
-def actualizar_status(hash, status):
-    registros = cargar_registros()
-    registros[hash] = {"status": status}
-    with open(ARCHIVO_REGISTRO, "w", encoding="utf-8") as f:
-        json.dump(registros, f, indent=4)
 
-def obtener_registro(hash):
-    registros = cargar_registros()
-    return registros.get(hash, None)
+def anadir_nodo(archivo, key, valor):
+    registros = cargar_archivo(archivo)
+    registros[key] = valor
+    guardar_archivo(archivo, registros)
 
-def eliminar_registro(hash):
-    registros = cargar_registros()
-    if hash in registros:
-        del registros[hash]
-        with open(ARCHIVO_REGISTRO, "w", encoding="utf-8") as f:
-            json.dump(registros, f, indent=4)
+def cargar_nodo(archivo, key):
+    registros = cargar_archivo(archivo)
+    return registros.get(key, None)
 
-def actualizar_registro(hash, data):
-    registros = cargar_registros()
-    if hash in registros:
-        registros[hash] = data
-        with open(ARCHIVO_REGISTRO, "w", encoding="utf-8") as f:
-            json.dump(registros, f, indent=4)
+def actualizar_nodo(archivo, key, data):
+    registros = cargar_archivo(archivo)
+    if key in registros:
+        registros[key].update(data)
+        guardar_archivo(archivo, registros)
 
-def anadir_info(hash, key, value):
-    registros = cargar_registros()
-    if hash in registros:
-        registros[hash][key] = value
-        with open(ARCHIVO_REGISTRO, "w", encoding="utf-8") as f:
-            json.dump(registros, f, indent=4)
+def eliminar_nodo(archivo, key):
+    registros = cargar_archivo(archivo)
+    if key in registros:
+        del registros[key]
+        guardar_archivo(archivo, registros)
+
+
+def anadir_registro(key, valor):
+    anadir_nodo(ARCHIVO_REGISTRO, key, valor)
+def cargar_registro(key):
+    return cargar_nodo(ARCHIVO_REGISTRO, key)
+def actualizar_registro(key, data):
+    actualizar_nodo(ARCHIVO_REGISTRO, key, data)
+def eliminar_registro(key):
+    eliminar_nodo(ARCHIVO_REGISTRO, key)
