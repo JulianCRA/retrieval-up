@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "compartido"
+version = "0.1.0"
+description = "Datos compartidos y funciones auxiliares para manipulación de archivos JSON"
+requires-python = ">=3.11,<3.13"
+dependencies = []
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
