@@ -3,6 +3,9 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
+import uuid
+import json
+
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
 
@@ -32,103 +35,78 @@ def main():
         description = "Carga archivos de audio y video desde fuentes locales o remotas"
     )
 
-    fuentes = parser.add_mutually_exclusive_group(required=True)
-
-    # provcesar archivo individual
-    fuentes.add_argument(
-        "-l", "--local",
-        help = "Fuente del archivo de audio o video a cargar, lista de archivos o directorio local"
-    )
-
-    # procesar varios archivos
-    fuentes.add_argument(
-        "-r", "--remoto",
-        help = "Fuente del archivo de audio o video a cargar remoto (URL)"
+    parser.add_argument(
+        "-s", "--source",
+        help = "Fuente del archivo de audio o video a cargar, lista de archivos o directorio local",
+        required=True,
     )
 
     args = parser.parse_args()
 
-    if args.local:
-        procesar_fuente_local(args.local)
-    elif args.remoto:
-        procesar_fuente_remota(args.remoto)
-
-def procesar_fuente_local(ruta):
-    path = Path(ruta)
-
-    if not path.exists():
-        print(f"Error: La ruta '{ruta}' no existe.")
+    if args.source:
+        determinar_fuente(args.source)
+    else:
+        print("[ERROR] Se requiere una fuente de recursos audiovisuales.")
         sys.exit(1)
 
+def determinar_fuente(ruta):
+    path = Path(ruta)
+
+    if urlparse(ruta).scheme in ("http", "https"):
+        procesar_recurso(ruta)
+    elif not path.exists():
+        print(f"[ERROR] La ruta '{ruta}' no existe.")
+        sys.exit(1)
     elif path.is_file():
         if path.suffix.lower() in MEDIA_EXTS:
-            procesar_archivo(path)
+            procesar_recurso(path.as_uri())
         else:
             #leer archivo de texto
             procesar_batch( leer_archivo_de_texto(path) )
-
 
     elif path.is_dir():
         procesar_batch( leer_directorio(path))
                 
     else:
-        print(f"Error: La ruta '{ruta}' no es un archivo ni un directorio válido.")
+        print(f"[ERROR] La ruta '{ruta}' no es un archivo ni un directorio válido.")
         sys.exit(1)
-   
-       
-def leer_archivo_de_texto(ruta):
+
+def procesar_recurso(uri):
+    try:
+        with YoutubeDL(OPTS) as ydl:
+            info = ydl.download([uri])
+    except (DownloadError, ExtractorError) as e:
+        print(f"[ERROR] Error al descargar '{uri}': {e}")
+
+def leer_directorio(directorio):
     archivos = []
-    with open(ruta, "r") as f:
-        for linea in f:
-            linea = linea.strip()
-            if not linea:
+    for item in directorio.iterdir():
+        if item.is_file() and item.suffix.lower() in MEDIA_EXTS:
+            archivos.append(item.as_uri())
+    return archivos
+
+def leer_archivo_de_texto(archivo):
+    uris = []
+    with open(archivo, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            path = Path(line)
+            if line == "" or line.startswith("#"):
                 continue
-            archivo_path = Path(linea)
-            if archivo_path.is_file() and archivo_path.suffix.lower() in MEDIA_EXTS:
-                archivos.append(archivo_path)
-    return archivos
+            elif path.is_file() and path.suffix.lower() in MEDIA_EXTS:
+                uris.append(path.as_uri())
+            elif urlparse(line).scheme in ("http", "https"):
+                uris.append(line)
+            else:
+                print(f"[WARNING] Línea ignorada: '{line}' no es un archivo válido ni una URL.")
+    return uris
 
-def leer_directorio(ruta):
-    archivos = []
-    path = Path(ruta)
-    for archivo in path.iterdir():
-        if archivo.is_file() and archivo.suffix.lower() in MEDIA_EXTS:
-            archivos.append(archivo)
-    return archivos
-
-def procesar_archivo(ruta):
-    # TODO : revisar que el contenido no exista ya en la carpeta de descargas, o que no se haya descargado antes
-    with YoutubeDL(OPTS) as ydl:
-        try:
-            info = ydl.extract_info(ruta.as_uri(), download=True)
-        except (DownloadError, ExtractorError) as e:
-            sys.exit(1)
-
-def procesar_batch(batch):
-    if batch:
-        print(f"Cargando {len(batch)} archivos del batch:")
-        for archivo in batch:
-            procesar_archivo(archivo)
+def procesar_batch(uris):
+    print(f"[INFO] Procesando {len(uris)} recursos...")
+    for uri in uris:
+        procesar_recurso(uri)
 
 
-def validar_url(u: str) -> bool:
-    # puede ser mucho mas estyricta
-    u = u.strip()
-    p = urlparse(u)
-    return p.scheme in ("http", "https") and bool(p.netloc)
-
-def procesar_fuente_remota(url):
-    if not validar_url(url):
-        print(f"Error: '{url}' no es una URL válida.")
-        sys.exit(1)
-
-    print(f"Descargando desde URL remota: {url}")
-
-    with YoutubeDL(OPTS) as ydl:
-        try:
-            info = ydl.extract_info(url, download=True)
-        except (DownloadError, ExtractorError) as e:
-            sys.exit(1)
 
 if __name__ == "__main__":
     main()
