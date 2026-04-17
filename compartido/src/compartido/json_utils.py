@@ -6,7 +6,10 @@ def cargar_archivo(ruta):
     try:
         with open(ruta, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError:
+        print(f"[INFO] Creando archivo.")
+        return {}
+    except json.JSONDecodeError:
         print(f"[WARNING] Error en lectura de archivo. Se creará uno nuevo.")
         return {}
 
