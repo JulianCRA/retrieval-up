@@ -18,47 +18,61 @@ def guardar_archivo(ruta, datos):
         print(f"[ERROR] Error al guardar el archivo {ruta}: {e}")
 
 
-def cargar_nodo(archivo, key):
-    registros = cargar_archivo(archivo)
-    return registros.get(key, None)
+def _navegar(datos, ruta):
+    nodo = datos
+    for p in ruta:
+        if not isinstance(nodo.get(p), dict):
+            raise KeyError(f"La clave '{p}' no existe o no es un dict.")
+        nodo = nodo[p]
+    return nodo
 
-def anadir_nodo(archivo, key, valor):
+
+def cargar_nodo(archivo, key, ruta=()):
     registros = cargar_archivo(archivo)
-    if key in registros:
+    contenedor = _navegar(registros, ruta)
+    return contenedor.get(key, None)
+
+def anadir_nodo(archivo, key, valor, ruta=()):
+    registros = cargar_archivo(archivo)
+    contenedor = _navegar(registros, ruta)
+    if key in contenedor:
         raise KeyError(f"La clave '{key}' ya existe. Usa reemplazar_nodo para sobrescribir.")
-    registros[key] = valor
+    contenedor[key] = valor
     guardar_archivo(archivo, registros)
 
-def anadir_nodos(archivo, datos):
+def anadir_nodos(archivo, datos, ruta=()):
     registros = cargar_archivo(archivo)
-    conflictos = set(datos) & set(registros)
+    contenedor = _navegar(registros, ruta)
+    conflictos = set(datos) & set(contenedor)
     if conflictos:
         raise KeyError(f"Las claves {conflictos} ya existen. Usa reemplazar_nodo para sobrescribir.")
-    registros.update(datos)
+    contenedor.update(datos)
     guardar_archivo(archivo, registros)
 
-def reemplazar_nodo(archivo, key, valor):
+def reemplazar_nodo(archivo, key, valor, ruta=()):
     registros = cargar_archivo(archivo)
-    if key not in registros:
+    contenedor = _navegar(registros, ruta)
+    if key not in contenedor:
         raise KeyError(f"La clave '{key}' no existe. Usa anadir_nodo para crear.")
-    registros[key] = valor
+    contenedor[key] = valor
     guardar_archivo(archivo, registros)
 
-def eliminar_nodo(archivo, key):
+def eliminar_nodo(archivo, key, ruta=()):
     registros = cargar_archivo(archivo)
-    if key not in registros:
+    contenedor = _navegar(registros, ruta)
+    if key not in contenedor:
         raise KeyError(f"La clave '{key}' no existe.")
-    del registros[key]
+    del contenedor[key]
     guardar_archivo(archivo, registros)
 
 
-def cargar_registro(key):
-    return cargar_nodo(ARCHIVO_REGISTRO, key)
-def anadir_registro(key, valor):
-    anadir_nodo(ARCHIVO_REGISTRO, key, valor)
-def anadir_registros(datos):
-    anadir_nodos(ARCHIVO_REGISTRO, datos)
-def reemplazar_registro(key, valor):
-    reemplazar_nodo(ARCHIVO_REGISTRO, key, valor)
-def eliminar_registro(key):
-    eliminar_nodo(ARCHIVO_REGISTRO, key)
+def cargar_registro(key, ruta=()):
+    return cargar_nodo(ARCHIVO_REGISTRO, key, ruta)
+def anadir_registro(key, valor, ruta=()):
+    anadir_nodo(ARCHIVO_REGISTRO, key, valor, ruta)
+def anadir_registros(datos, ruta=()):
+    anadir_nodos(ARCHIVO_REGISTRO, datos, ruta)
+def reemplazar_registro(key, valor, ruta=()):
+    reemplazar_nodo(ARCHIVO_REGISTRO, key, valor, ruta)
+def eliminar_registro(key, ruta=()):
+    eliminar_nodo(ARCHIVO_REGISTRO, key, ruta)
