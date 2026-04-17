@@ -18,7 +18,8 @@ OPTS = {
         "format": "bestaudio/best",
         "outtmpl": str(DESCARGAS_DIR / "%(title)s - %(id)s.%(ext)s"),
         "prefer_ffmpeg": True,
-        "noplaylist": False,
+        # TODO : se puede aceptar playlists pero hay que manejar el caso de múltiples archivos descargados. por ahora se ignoora ese caso
+        "noplaylist": True,
         "geo_bypass": True,
         "no_warnings": True,
         "quiet": False,
@@ -81,20 +82,8 @@ def procesar_recurso(uri):
     try:
         with YoutubeDL(OPTS) as ydl:
             info = ydl.extract_info(uri, download=True)
-            ju.anadir_registro(hash, {
-                "uri": uri,
-                "title": info.get("title", ""),
-                "status": 1,
-                "archivo": str(DESCARGAS_DIR / f"{hash}.json"),
-            })
-
-            ju.anadir_nodo(DESCARGAS_DIR / f"{hash}.json", "descarga",{
-                "hash": hash,
-                "title": info.get("title", ""),                
-                "uri": uri,
-                "archivo": ydl.prepare_filename(info),
-                "status": 'OK'
-            })
+            registrar_descarga(hash, info)
+            registrar_detalles(hash, info, ydl.prepare_filename(info))
     except (DownloadError, ExtractorError) as e:
         print(f"[ERROR] Error al descargar '{uri}': {e}")
 
@@ -126,7 +115,25 @@ def procesar_batch(uris):
     for uri in uris:
         procesar_recurso(uri)
 
-
+def registrar_descarga(hash, info):
+    data = {
+        "uri": info.get("webpage_url", ""),
+        "title": info.get("title", ""),
+        "status": 1,
+        "archivo_detalle": str(DESCARGAS_DIR / f"{hash}.json"),
+    }
+    ju.anadir_registro(hash, data)
+    
+def registrar_detalles(hash, info, archivo_descargado):
+    ju.anadir_nodos(DESCARGAS_DIR / f"{hash}.json",{
+        "hash": hash,
+        "title": info.get("title", ""),
+        "uri": info.get("webpage_url", ""),
+        "archivo": archivo_descargado,
+        "status": 'OK'
+    })
+    
+    
 
 if __name__ == "__main__":
     main()
