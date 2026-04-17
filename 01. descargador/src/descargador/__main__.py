@@ -2,9 +2,10 @@ import argparse
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
+import hashlib
 
-import uuid
-import json
+import compartido.json_utils as ju
+from compartido.rutas import ARCHIVO_REGISTRO, DESCARGAS_DIR
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
@@ -15,7 +16,7 @@ MEDIA_EXTS = AUDIO_EXTS | VIDEO_EXTS
 
 OPTS = {
         "format": "bestaudio/best",
-        "outtmpl": str(Path("descargas") / "%(title)s - %(id)s.%(ext)s"),
+        "outtmpl": str(DESCARGAS_DIR / "%(title)s - %(id)s.%(ext)s"),
         "prefer_ffmpeg": True,
         "noplaylist": False,
         "geo_bypass": True,
@@ -72,9 +73,28 @@ def determinar_fuente(ruta):
         sys.exit(1)
 
 def procesar_recurso(uri):
+    hash = hashlib.sha256(uri.encode("utf-8")).hexdigest()[:24]
+    if ju.cargar_registro(hash):
+        print(f"[INFO] El recurso '{uri}' ya ha sido procesado previamente. Saltando descarga.")
+        return
+
     try:
         with YoutubeDL(OPTS) as ydl:
-            info = ydl.download([uri])
+            info = ydl.extract_info(uri, download=True)
+            ju.anadir_registro(hash, {
+                "uri": uri,
+                "title": info.get("title", ""),
+                "status": 1,
+                "archivo": str(DESCARGAS_DIR / f"{hash}.json"),
+            })
+
+            ju.anadir_nodo(DESCARGAS_DIR / f"{hash}.json", "descarga",{
+                "hash": hash,
+                "title": info.get("title", ""),                
+                "uri": uri,
+                "archivo": ydl.prepare_filename(info),
+                "status": 'OK'
+            })
     except (DownloadError, ExtractorError) as e:
         print(f"[ERROR] Error al descargar '{uri}': {e}")
 
