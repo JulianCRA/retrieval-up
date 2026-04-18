@@ -21,7 +21,7 @@ def main():
     )
 
     parser.add_argument(
-        "-vad", "--vad",
+        "-metodo", "--metodo",
         help = "Escoger el método de detección de voz (VAD) para eliminar silencios [energia|silvero|wbrtc]",
         choices = ["energia", "silvero", "wbrtc"],
     )
@@ -36,7 +36,7 @@ def main():
 
 def procesar_archivo(args):
     ruta = args.input
-    vad = args.vad or None
+    metodo = args.metodo or None
     audio, samplerate = sf.read(ruta)
     duracion = len(audio) / samplerate
 
@@ -44,9 +44,9 @@ def procesar_archivo(args):
 
     audio = reducir_ruido(audio, samplerate)
     audio = normalizar_picos(audio)
-    if vad is not None:
-        print(f"[INFO] Aplicando VAD '{vad}' para eliminar silencios...")
-        audio = vad(audio, samplerate)
+    if metodo is not None:
+        print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
+        audio = vad(audio, samplerate, metodo=metodo)
 
     ruta_nueva = Path(ruta).with_name(Path(ruta).stem + "_limpio.wav")
     sf.write(ruta_nueva, audio, samplerate)
@@ -85,22 +85,18 @@ def normalizar_picos(audio):
 
 def vad(audio, samplerate, metodo="energia"):
     if metodo == "energia":
-        return detectar_silencio(audio, samplerate)
+        return vad_energia(audio, samplerate)
     elif metodo == "silvero":
-        from silvero import VAD
-        vad = VAD(samplerate)
-        return vad(audio)
+        return vad_silvero(audio, samplerate)
     elif metodo == "wbrtc":
-        import webrtcvad
-        vad = webrtcvad.Vad(3)  # Nivel de agresividad (0-3)
-        frame_duration = 30  # Duración del frame en ms
-        frame_size = int(samplerate * frame_duration / 1000)
-        frames = [audio[i:i + frame_size] for i in range(0, len(audio), frame_size)]
-        return [frame for frame in frames if vad.is_speech(frame.tobytes(), samplerate)]    
+        return vad_wbrtc(audio, samplerate)
+    else:
+        print(f"[WARNING] Método VAD '{metodo}' no reconocido.")
+        return audio
 
 
 # deteccion basada en energ´ıa mediante el calculo de la amplitud cuadratica media (RMS) por ventana temporal
-def detectar_silencio(audio, samplerate, umbral_db=-40.0, duracion_minima=0.5):
+def vad_energia(audio, samplerate, umbral_db=-40.0, duracion_minima=0.5):
     print(f"[INFO] Detectando silencios en el audio...")
     ventana_duracion = 0.02
     ventana_muestras = int(ventana_duracion * samplerate)
@@ -135,7 +131,22 @@ def detectar_silencio(audio, samplerate, umbral_db=-40.0, duracion_minima=0.5):
 
     return silencio    
 
+def vad_silvero(audio, samplerate):
+    print(f"[INFO] Aplicando VAD Silvero...")
+    from silvero import VAD
+    vad = VAD(samplerate=samplerate)
+    mask = vad(audio)
+    return audio[mask]
 
+def vad_wbrtc(audio, samplerate):
+    print(f"[INFO] Aplicando VAD WebRTC...")
+    import webrtcvad
+    vad = webrtcvad.Vad(3)
+    frame_duration = 30
+    frame_size = int(samplerate * frame_duration / 1000)
+    frames = [audio[i:i + frame_size] for i in range(0, len(audio), frame_size)]
+    mask = np.array([vad.is_speech(frame.tobytes(), samplerate) for frame in frames])
+    return audio[np.repeat(mask, frame_size)][:len(audio)]
 
 if __name__ == "__main__":
     main()
