@@ -74,18 +74,26 @@ def determinar_fuente(ruta):
         sys.exit(1)
 
 def procesar_recurso(uri):
-    hash = hashlib.sha256(uri.encode("utf-8")).hexdigest()[:24]
+    try:
+        with YoutubeDL(OPTS) as ydl:
+            info = ydl.extract_info(uri, download=False)
+    except (DownloadError, ExtractorError) as e:
+        print(f"[ERROR] Error al extraer información de '{uri}': {e}")
+        return
+    
+    actual_uri = info.get("webpage_url", uri)
+    hash = hashlib.sha256(actual_uri.encode("utf-8")).hexdigest()[:24]
     if ju.cargar_registro(hash):
-        print(f"[INFO] El recurso '{uri}' ya ha sido procesado previamente. Saltando descarga.")
+        print(f"[INFO] El recurso '{actual_uri}' ya ha sido procesado previamente. Saltando descarga.")
         return
 
     try:
         with YoutubeDL(OPTS) as ydl:
-            info = ydl.extract_info(uri, download=True)
+            ydl.download([actual_uri])
             registrar_descarga(hash, info)
             registrar_detalles(hash, info, ydl.prepare_filename(info))
     except (DownloadError, ExtractorError) as e:
-        print(f"[ERROR] Error al descargar '{uri}': {e}")
+        print(f"[ERROR] Error al descargar '{actual_uri}': {e}")
 
 def leer_directorio(directorio):
     archivos = []
