@@ -2,7 +2,13 @@ import argparse
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
+import hashlib
 
+import compartido.json_utils as ju
+from compartido.rutas import ARCHIVO_REGISTRO, DESCARGAS_DIR
+
+from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError, ExtractorError
 
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".opus", ".wma", ".aac"}
 VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".wmv"}
@@ -10,9 +16,10 @@ MEDIA_EXTS = AUDIO_EXTS | VIDEO_EXTS
 
 OPTS = {
         "format": "bestaudio/best",
-        "outtmpl": str(Path("descargas") / "%(title)s - %(id)s.%(ext)s"),
+        "outtmpl": str(DESCARGAS_DIR / "%(title)s - %(id)s.%(ext)s"),
         "prefer_ffmpeg": True,
-        "noplaylist": False,
+        # TODO : se puede aceptar playlists pero hay que manejar el caso de múltiples archivos descargados. por ahora se ignoora ese caso
+        "noplaylist": True,
         "geo_bypass": True,
         "no_warnings": True,
         "quiet": False,
@@ -30,99 +37,111 @@ def main():
         description = "Carga archivos de audio y video desde fuentes locales o remotas"
     )
 
-    fuentes = parser.add_mutually_exclusive_group(required=True)
-
-    # provcesar archivo individual
-    fuentes.add_argument(
-        "-l", "--local",
-        help = "Fuente del archivo de audio o video a cargar, lista de archivos o directorio local"
-    )
-
-    # procesar varios archivos
-    fuentes.add_argument(
-        "-r", "--remoto",
-        help = "Fuente del archivo de audio o video a cargar remoto (URL)"
+    parser.add_argument(
+        "-s", "--source",
+        help = "Fuente del archivo de audio o video a cargar, lista de archivos o directorio local",
+        required=True,
     )
 
     args = parser.parse_args()
 
-    if args.local:
-        procesar_fuente_local(args.local)
-    elif args.remoto:
-        procesar_fuente_remota(args.remoto)
-
-def procesar_fuente_local(ruta):
-    path = Path(ruta)
-
-    if not path.exists():
-        print(f"Error: La ruta '{ruta}' no existe.")
+    if args.source:
+        determinar_fuente(args.source)
+    else:
+        print("[ERROR] Se requiere una fuente de recursos audiovisuales.")
         sys.exit(1)
 
+def determinar_fuente(ruta):
+    path = Path(ruta)
+
+    if urlparse(ruta).scheme in ("http", "https"):
+        procesar_recurso(ruta)
+    elif not path.exists():
+        print(f"[ERROR] La ruta '{ruta}' no existe.")
+        sys.exit(1)
     elif path.is_file():
         if path.suffix.lower() in MEDIA_EXTS:
-            procesar_archivo(path)
+            procesar_recurso(path.as_uri())
         else:
             #leer archivo de texto
             procesar_batch( leer_archivo_de_texto(path) )
-
 
     elif path.is_dir():
         procesar_batch( leer_directorio(path))
                 
     else:
-        print(f"Error: La ruta '{ruta}' no es un archivo ni un directorio válido.")
+        print(f"[ERROR] La ruta '{ruta}' no es un archivo ni un directorio válido.")
         sys.exit(1)
-   
-       
-def leer_archivo_de_texto(ruta):
+
+def procesar_recurso(uri):
+    try:
+        with YoutubeDL(OPTS) as ydl:
+            info = ydl.extract_info(uri, download=False)
+    except (DownloadError, ExtractorError) as e:
+        print(f"[ERROR] Error al extraer información de '{uri}': {e}")
+        return
+    
+    actual_uri = info.get("webpage_url", uri)
+    hash = hashlib.sha256(actual_uri.encode("utf-8")).hexdigest()[:24]
+    if ju.cargar_registro(hash):
+        print(f"[INFO] El recurso '{actual_uri}' ya ha sido procesado previamente. Saltando descarga.")
+        return
+
+    try:
+        with YoutubeDL(OPTS) as ydl:
+            ydl.download([actual_uri])
+            registrar_descarga(hash, info)
+            registrar_detalles(hash, info, ydl.prepare_filename(info))
+    except (DownloadError, ExtractorError) as e:
+        print(f"[ERROR] Error al descargar '{actual_uri}': {e}")
+
+def leer_directorio(directorio):
     archivos = []
-    with open(ruta, "r") as f:
-        for linea in f:
-            linea = linea.strip()
-            if not linea:
+    for item in directorio.iterdir():
+        if item.is_file() and item.suffix.lower() in MEDIA_EXTS:
+            archivos.append(item.as_uri())
+    return archivos
+
+def leer_archivo_de_texto(archivo):
+    uris = []
+    with open(archivo, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            path = Path(line)
+            if line == "" or line.startswith("#"):
                 continue
-            archivo_path = Path(linea)
-            if archivo_path.is_file() and archivo_path.suffix.lower() in MEDIA_EXTS:
-                archivos.append(archivo_path)
-    return archivos
+            elif path.is_file() and path.suffix.lower() in MEDIA_EXTS:
+                uris.append(path.as_uri())
+            elif urlparse(line).scheme in ("http", "https"):
+                uris.append(line)
+            else:
+                print(f"[WARNING] Línea ignorada: '{line}' no es un archivo válido ni una URL.")
+    return uris
 
-def leer_directorio(ruta):
-    archivos = []
-    path = Path(ruta)
-    for archivo in path.iterdir():
-        if archivo.is_file() and archivo.suffix.lower() in MEDIA_EXTS:
-            archivos.append(archivo)
-    return archivos
+def procesar_batch(uris):
+    print(f"[INFO] Procesando {len(uris)} recursos...")
+    for uri in uris:
+        procesar_recurso(uri)
 
-def procesar_archivo(ruta):
-    # TODO : revisar que el contenido no exista ya en la carpeta de descargas, o que no se haya descargado antes
-    with YoutubeDL(OPTS) as ydl:
-        info = ydl.extract_info(ruta.as_uri(), download=True)
-
-def procesar_batch(batch):
-    if batch:
-        print(f"Cargando {len(batch)} archivos del batch:")
-        for archivo in batch:
-            procesar_archivo(archivo)
-
-
-def validar_url(u: str) -> bool:
-    # puede ser mucho mas estyricta
-    u = u.strip()
-    p = urlparse(u)
-    return p.scheme in ("http", "https") and bool(p.netloc)
-
-from yt_dlp import YoutubeDL
-
-def procesar_fuente_remota(url):
-    if not validar_url(url):
-        print(f"Error: '{url}' no es una URL válida.")
-        sys.exit(1)
-
-    print(f"Descargando desde URL remota: {url}")
-
-    with YoutubeDL(OPTS) as ydl:
-        info = ydl.extract_info(url, download=True)
+def registrar_descarga(hash, info):
+    data = {
+        "uri": info.get("webpage_url", ""),
+        "title": info.get("title", ""),
+        "status": 1,
+        "archivo_detalle": str(DESCARGAS_DIR / f"{hash}.json"),
+    }
+    ju.anadir_registro(hash, data)
+    
+def registrar_detalles(hash, info, archivo_descargado):
+    ju.anadir_nodos(DESCARGAS_DIR / f"{hash}.json",{
+        "hash": hash,
+        "title": info.get("title", ""),
+        "uri": info.get("webpage_url", ""),
+        "archivo": archivo_descargado,
+        "status": 'OK'
+    })
+    
+    
 
 if __name__ == "__main__":
     main()
