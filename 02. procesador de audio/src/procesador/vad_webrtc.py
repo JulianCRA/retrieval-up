@@ -2,7 +2,7 @@ import numpy as np
 
 
 def vad_webrtc(audio, samplerate, agresividad=3, duracion_minima=0.25, duracion_silencio_minima=0.3):
-    print(f"[INFO] Aplicando VAD WebRTC...")
+    print(f"[INFO] VAD WebRTC...")
     import webrtcvad
 
     if samplerate not in (8000, 16000, 32000, 48000):
@@ -47,7 +47,6 @@ def vad_webrtc(audio, samplerate, agresividad=3, duracion_minima=0.25, duracion_
                     duracion = fin_ultimo_activo - inicio_actual
                     if duracion >= duracion_minima:
                         segmentos.append((round(inicio_actual, 3), round(fin_ultimo_activo, 3)))
-                        print(f"Voz detectada: Inicio = {inicio_actual:.2f} s, Fin = {fin_ultimo_activo:.2f} s")
                     inicio_actual = None
                     fin_ultimo_activo = None
 
@@ -55,6 +54,7 @@ def vad_webrtc(audio, samplerate, agresividad=3, duracion_minima=0.25, duracion_
         duracion = fin_ultimo_activo - inicio_actual
         if duracion >= duracion_minima:
             segmentos.append((round(inicio_actual, 3), round(fin_ultimo_activo, 3)))
-            print(f"Voz detectada: Inicio = {inicio_actual:.2f} s, Fin = {fin_ultimo_activo:.2f} s")
+
+    print(f"[INFO] {len(segmentos)} segmentos detectados")
 
     return segmentos

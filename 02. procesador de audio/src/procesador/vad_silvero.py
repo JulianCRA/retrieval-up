@@ -5,7 +5,7 @@ _silero_model = None
 
 
 def vad_silvero(audio, samplerate, umbral=0.5, duracion_minima=0.25, duracion_silencio_minima=0.3):
-    print(f"[INFO] Aplicando VAD Silero...")
+    print(f"[INFO] VAD Silero...")
     import torch
     from silero_vad import load_silero_vad, get_speech_timestamps
 
@@ -37,6 +37,7 @@ def vad_silvero(audio, samplerate, umbral=0.5, duracion_minima=0.25, duracion_si
         fin = round(seg["end"] / samplerate, 3)
         if (fin - inicio) >= duracion_minima:
             segmentos.append((inicio, fin))
-            print(f"Voz detectada: Inicio = {inicio:.2f} s, Fin = {fin:.2f} s")
+    
+    print(f"[INFO] {len(segmentos)} segmentos detectados")
 
     return segmentos

@@ -3,7 +3,7 @@ import numpy as np
 
 # deteccion basada en energ´ıa mediante el calculo de la amplitud cuadratica media (RMS) por ventana temporal
 def vad_energia(audio, samplerate, umbral_db=-40.0, duracion_minima=0.5):
-    print(f"[INFO] Detectando voz en el audio...")
+    print(f"[INFO] VAD por energia.")
     ventana_duracion = 0.02
     ventana_muestras = int(ventana_duracion * samplerate)
     umbral_lineal = 10 ** (umbral_db / 20.0)
@@ -32,7 +32,6 @@ def vad_energia(audio, samplerate, umbral_db=-40.0, duracion_minima=0.5):
         if (fin_voz - inicio_voz) >= duracion_minima:
             segmentos.append((round(inicio_voz, 3), round(fin_voz, 3)))
 
-    for inicio, fin in segmentos:
-        print(f"Voz detectada: Inicio = {inicio:.2f} s, Fin = {fin:.2f} s")
+    print(f"[INFO] {len(segmentos)} segmentos detectados")
 
     return segmentos
