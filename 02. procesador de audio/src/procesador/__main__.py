@@ -8,7 +8,7 @@ import numpy as np
 
 from procesador.vad_energia import vad_energia
 from procesador.vad_silvero import vad_silvero
-from procesador.vad_wbrtc import vad_wbrtc
+from procesador.vad_webrtc import vad_webrtc
 
 # from descargador.__main__ import procesar_archivo
 
@@ -50,7 +50,9 @@ def procesar_archivo(args):
     audio = normalizar_picos(audio)
     if metodo is not None:
         print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
-        audio = vad(audio, samplerate, metodo=metodo)
+        segmentos = vad(audio, samplerate, metodo=metodo)
+        segmentos = procesar_segmentos(segmentos)
+        print(segmentos)
 
     ruta_nueva = Path(ruta).with_name(Path(ruta).stem + "_limpio.wav")
     sf.write(ruta_nueva, audio, samplerate)
@@ -92,12 +94,30 @@ def vad(audio, samplerate, metodo="energia"):
         return vad_energia(audio, samplerate)
     elif metodo == "silvero":
         return vad_silvero(audio, samplerate)
-    elif metodo == "wbrtc":
-        return vad_wbrtc(audio, samplerate)
+    elif metodo == "webrtc":
+        return vad_webrtc(audio, samplerate)
     else:
         print(f"[WARNING] Método VAD '{metodo}' no reconocido.")
-        return audio
+        return None
 
+
+def procesar_segmentos(segmentos):
+    # anadir 0.3segundos a los segmentos para evitar cortar palabras al inicio o final
+    segmentos_procesados = []
+    for inicio, fin in segmentos:
+        inicio_procesado = max(0, inicio - 0.3)
+        fin_procesado = fin + 0.3
+        segmentos_procesados.append((round(inicio_procesado, 3), round(fin_procesado, 3)))
+
+    # fusionar segmentos que se solapan
+    segmentos_fusionados = []
+    for inicio, fin in sorted(segmentos_procesados):
+        if not segmentos_fusionados or inicio > segmentos_fusionados[-1][1]:
+            segmentos_fusionados.append((inicio, fin))
+        else:
+            segmentos_fusionados[-1] = (segmentos_fusionados[-1][0], max(segmentos_fusionados[-1][1], fin))
+
+    return segmentos_fusionados
 
 if __name__ == "__main__":
     main()
