@@ -21,7 +21,7 @@ def main():
     )
 
     parser.add_argument(
-        "-metodo", "--metodo",
+        "-m", "--metodo",
         help = "Escoger el método de detección de voz (VAD) para eliminar silencios [energia|silvero|wbrtc]",
         choices = ["energia", "silvero", "wbrtc"],
     )
@@ -131,22 +131,102 @@ def vad_energia(audio, samplerate, umbral_db=-40.0, duracion_minima=0.5):
 
     return silencio    
 
-def vad_silvero(audio, samplerate):
-    print(f"[INFO] Aplicando VAD Silvero...")
-    from silvero import VAD
-    vad = VAD(samplerate=samplerate)
-    mask = vad(audio)
-    return audio[mask]
+_silero_model = None
 
-def vad_wbrtc(audio, samplerate):
+def vad_silvero(audio, samplerate, umbral=0.5, duracion_minima=0.25, duracion_silencio_minima=0.3):
+    print(f"[INFO] Aplicando VAD Silero...")
+    import torch
+    from silero_vad import load_silero_vad, get_speech_timestamps
+
+    if samplerate != 16000:
+        raise ValueError(
+            f"VAD Silero requiere audio a 16 kHz, se obtuvo {samplerate} Hz."
+        )
+
+    global _silero_model
+    if _silero_model is None:
+        _silero_model = load_silero_vad()
+
+    audio_mono = audio[:, 0] if audio.ndim > 1 else audio
+    tensor = torch.from_numpy(audio_mono.astype(np.float32))
+
+    timestamps = get_speech_timestamps(
+        tensor,
+        _silero_model,
+        threshold=umbral,
+        min_speech_duration_ms=int(duracion_minima * 1000),
+        min_silence_duration_ms=int(duracion_silencio_minima * 1000),
+        sampling_rate=samplerate,
+        return_seconds=False,
+    )
+
+    segmentos = []
+    for seg in timestamps:
+        inicio = round(seg["start"] / samplerate, 3)
+        fin = round(seg["end"] / samplerate, 3)
+        if (fin - inicio) >= duracion_minima:
+            segmentos.append((inicio, fin))
+            print(f"Voz detectada: Inicio = {inicio:.2f} s, Fin = {fin:.2f} s")
+
+    return segmentos
+
+def vad_wbrtc(audio, samplerate, agresividad=3, duracion_minima=0.25, duracion_silencio_minima=0.3):
     print(f"[INFO] Aplicando VAD WebRTC...")
     import webrtcvad
-    vad = webrtcvad.Vad(3)
-    frame_duration = 30
-    frame_size = int(samplerate * frame_duration / 1000)
-    frames = [audio[i:i + frame_size] for i in range(0, len(audio), frame_size)]
-    mask = np.array([vad.is_speech(frame.tobytes(), samplerate) for frame in frames])
-    return audio[np.repeat(mask, frame_size)][:len(audio)]
+
+    if samplerate not in (8000, 16000, 32000, 48000):
+        raise ValueError(
+            f"VAD WebRTC requiere 8000, 16000, 32000 o 48000 Hz, se obtuvo {samplerate} Hz."
+        )
+
+    vad = webrtcvad.Vad(agresividad)
+
+    audio_mono = audio[:, 0] if audio.ndim > 1 else audio
+    pcm = (audio_mono * 32767).astype(np.int16)
+
+    # WebRTC solo acepta frames de 10, 20 o 30 ms
+    duracion_frame_ms = 30
+    frame_muestras = int(samplerate * duracion_frame_ms / 1000)
+
+    frames = [
+        pcm[i:i + frame_muestras]
+        for i in range(0, len(pcm) - frame_muestras + 1, frame_muestras)
+    ]
+
+    # Agrupar frames activos en segmentos, fusionando silencios cortos
+    segmentos = []
+    inicio_actual = None
+    fin_ultimo_activo = None
+
+    for idx, frame in enumerate(frames):
+        if len(frame) < frame_muestras:
+            break
+        activo = vad.is_speech(frame.tobytes(), samplerate)
+        tiempo_inicio_frame = idx * duracion_frame_ms / 1000.0
+        tiempo_fin_frame = tiempo_inicio_frame + duracion_frame_ms / 1000.0
+
+        if activo:
+            if inicio_actual is None:
+                inicio_actual = tiempo_inicio_frame
+            fin_ultimo_activo = tiempo_fin_frame
+        else:
+            if inicio_actual is not None:
+                silencio = tiempo_inicio_frame - fin_ultimo_activo
+                if silencio >= duracion_silencio_minima:
+                    duracion = fin_ultimo_activo - inicio_actual
+                    if duracion >= duracion_minima:
+                        segmentos.append((round(inicio_actual, 3), round(fin_ultimo_activo, 3)))
+                        print(f"Voz detectada: Inicio = {inicio_actual:.2f} s, Fin = {fin_ultimo_activo:.2f} s")
+                    inicio_actual = None
+                    fin_ultimo_activo = None
+
+    if inicio_actual is not None:
+        duracion = fin_ultimo_activo - inicio_actual
+        if duracion >= duracion_minima:
+            segmentos.append((round(inicio_actual, 3), round(fin_ultimo_activo, 3)))
+            print(f"Voz detectada: Inicio = {inicio_actual:.2f} s, Fin = {fin_ultimo_activo:.2f} s")
+
+    return segmentos
 
 if __name__ == "__main__":
     main()
