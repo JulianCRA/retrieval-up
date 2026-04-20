@@ -2,7 +2,7 @@ import numpy as np
 
 
 def vad_webrtc(audio, samplerate, agresividad=3, duracion_minima=0.25, duracion_silencio_minima=0.3):
-    print(f"[INFO] VAD WebRTC...")
+    print(f"[INFO] VAD WebRTC (CPU)")
     import webrtcvad
 
     if samplerate not in (8000, 16000, 32000, 48000):

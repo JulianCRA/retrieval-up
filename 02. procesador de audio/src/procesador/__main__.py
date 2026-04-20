@@ -7,15 +7,46 @@ import noisereduce as nr
 import numpy as np
 
 from procesador.vad_energia import vad_energia
-from procesador.vad_silvero import vad_silvero
+from procesador.vad_silero import vad_silero
 from procesador.vad_webrtc import vad_webrtc
 
 # from descargador.__main__ import procesar_archivo
 
 def main():
+    info_vad = """
+Métodos de detección de voz (VAD):
+
+  energia:
+    Detecta voz midiendo la energía de la señal en ventanas de tiempo. Es el método
+    más simple y rápido, sin dependencias adicionales. Su rendimiento depende en gran
+    medida de la calidad del audio: funciona bien en entornos silenciosos, pero el
+    ruido de fondo puede confundirse con voz y requiere ajuste manual de umbrales.
+    Recursos: mínimo 1 núcleo de CPU y ~50 MB de RAM. No requiere GPU. Recomendado
+    cualquier CPU moderna con al menos 512 MB de RAM disponible.
+
+  silero:
+    Utiliza un modelo de red neuronal preentrenado (Silero VAD) para identificar
+    segmentos de voz. Es el método más preciso y robusto ante ruido de fondo y
+    variaciones de volumen, sin necesidad de ajuste manual. Requiere la dependencia
+    'silero-vad' (torch) y es considerablemente más lento que los otros métodos.
+    Recursos: mínimo 2 núcleos de CPU y ~500 MB de RAM. Recomendado 4 núcleos y
+    2 GB de RAM. Una GPU compatible con CUDA acelera significativamente el proceso,
+    aunque no es imprescindible.
+
+  webrtc:
+    Implementa el VAD incluido en el proyecto WebRTC, diseñado para comunicaciones
+    en tiempo real. Ofrece un equilibrio entre velocidad y precisión. Solo admite
+    tasas de muestreo de 8000, 16000, 32000 o 48000 Hz, y su precisión disminuye
+    en grabaciones con ruido de fondo elevado.
+    Recursos: mínimo 1 núcleo de CPU y ~100 MB de RAM. No requiere GPU. Recomendado
+    cualquier CPU moderna con al menos 512 MB de RAM disponible.
+"""
+
     parser = argparse.ArgumentParser(
         prog = "procesador",
-        description = "Procesa archivos de audio para remover ruido de fondo, mejorar calidad, etc."
+        description = "Procesa archivos de audio para remover ruido de fondo, mejorar calidad, etc.",
+        epilog = info_vad,
+        formatter_class = argparse.RawDescriptionHelpFormatter
     )
 
     parser.add_argument(
@@ -26,8 +57,8 @@ def main():
 
     parser.add_argument(
         "-m", "--metodo",
-        help = "Escoger el método de detección de voz (VAD) para eliminar silencios [energia|silvero|webrtc]",
-        choices = ["energia", "silvero", "webrtc"],
+        help = "Escoger el método de detección de voz (VAD) para eliminar silencios [energia|silero|webrtc]",
+        choices = ["energia", "silero", "webrtc"],
     )
 
     args = parser.parse_args()
@@ -52,7 +83,14 @@ def procesar_archivo(args):
         print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
         segmentos = vad(audio, samplerate, metodo=metodo)
         segmentos = procesar_segmentos(segmentos)
-        print(segmentos)
+        audio_procesado = np.zeros_like(audio)
+        for inicio, fin in segmentos:
+            inicio_muestra = int(inicio * samplerate)
+            fin_muestra = int(fin * samplerate)
+            audio_procesado[inicio_muestra:fin_muestra] = audio[inicio_muestra:fin_muestra]
+        ruta_procesada = Path(ruta).with_name(Path(ruta).stem + "_procesado.wav")
+        sf.write(ruta_procesada, audio_procesado, samplerate)
+        
 
     ruta_nueva = Path(ruta).with_name(Path(ruta).stem + "_limpio.wav")
     sf.write(ruta_nueva, audio, samplerate)
@@ -92,8 +130,8 @@ def normalizar_picos(audio):
 def vad(audio, samplerate, metodo="energia"):
     if metodo == "energia":
         return vad_energia(audio, samplerate)
-    elif metodo == "silvero":
-        return vad_silvero(audio, samplerate)
+    elif metodo == "silero":
+        return vad_silero(audio, samplerate)
     elif metodo == "webrtc":
         return vad_webrtc(audio, samplerate)
     else:

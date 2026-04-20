@@ -3,7 +3,7 @@ import numpy as np
 
 # deteccion basada en energ´ıa mediante el calculo de la amplitud cuadratica media (RMS) por ventana temporal
 def vad_energia(audio, samplerate, umbral_db=-40.0, duracion_minima=0.5):
-    print(f"[INFO] VAD por energia.")
+    print(f"[INFO] VAD por energía (CPU)")
     ventana_duracion = 0.02
     ventana_muestras = int(ventana_duracion * samplerate)
     umbral_lineal = 10 ** (umbral_db / 20.0)

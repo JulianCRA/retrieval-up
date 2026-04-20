@@ -4,8 +4,7 @@ import numpy as np
 _silero_model = None
 
 
-def vad_silvero(audio, samplerate, umbral=0.5, duracion_minima=0.25, duracion_silencio_minima=0.3):
-    print(f"[INFO] VAD Silero...")
+def vad_silero(audio, samplerate, umbral=0.4, duracion_minima=0.25, duracion_silencio_minima=0.3):
     import torch
     from silero_vad import load_silero_vad, get_speech_timestamps
 
@@ -14,12 +13,19 @@ def vad_silvero(audio, samplerate, umbral=0.5, duracion_minima=0.25, duracion_si
             f"VAD Silero requiere audio a 16 kHz, se obtuvo {samplerate} Hz."
         )
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        print(f"[INFO] VAD Silero (GPU: {torch.cuda.get_device_name(0)})")
+    else:
+        print(f"[INFO] VAD Silero (CPU)")
+
     global _silero_model
     if _silero_model is None:
         _silero_model = load_silero_vad()
+        _silero_model = _silero_model.to(device)
 
     audio_mono = audio[:, 0] if audio.ndim > 1 else audio
-    tensor = torch.from_numpy(audio_mono.astype(np.float32))
+    tensor = torch.from_numpy(audio_mono.astype(np.float32)).to(device)
 
     timestamps = get_speech_timestamps(
         tensor,
