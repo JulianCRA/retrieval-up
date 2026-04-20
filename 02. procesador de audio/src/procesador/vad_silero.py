@@ -5,8 +5,10 @@ _silero_model = None
 
 
 def vad_silero(audio, samplerate, umbral=0.4, duracion_minima=0.25, duracion_silencio_minima=0.3):
+    print(f"[INFO] Cargando modelo Silero VAD...")
     import torch
     from silero_vad import load_silero_vad, get_speech_timestamps
+    print(f"[INFO] Modelo Silero VAD cargado.")
 
     if samplerate != 16000:
         raise ValueError(
