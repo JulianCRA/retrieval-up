@@ -79,6 +79,7 @@ def procesar_archivo(args):
 
     audio = reducir_ruido(audio, samplerate)
     audio = normalizar_picos(audio)
+    audio = normalizar_volumen(audio)
     if metodo is not None:
         print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
         segmentos = vad(audio, samplerate, metodo=metodo)
@@ -126,6 +127,15 @@ def normalizar_picos(audio):
     target_linear = 10 ** (decibeles_objetivo / 20.0)
 
     return audio * (target_linear / picos)
+
+def normalizar_volumen(audio, umbral_db=-20.0):
+    print(f"[INFO] Normalizando volumen del audio...")
+    rms = np.sqrt(np.mean(audio**2))
+    if rms < 1e-8:
+        return audio
+    umbral_lineal = 10 ** (umbral_db / 20.0)
+    factor_normalizacion = umbral_lineal / rms
+    return audio * factor_normalizacion
 
 def vad(audio, samplerate, metodo="energia"):
     if metodo == "energia":
