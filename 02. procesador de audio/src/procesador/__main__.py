@@ -2,6 +2,9 @@ import argparse
 import sys
 from pathlib import Path
 
+from compartido import json_utils as ju
+from compartido.rutas import DESCARGAS_DIR
+
 import soundfile as sf
 import noisereduce as nr
 import numpy as np
@@ -77,7 +80,13 @@ Métodos de detección de voz (VAD):
             sys.exit(1)
 
         procesar_archivo(args.input, args.metodo)
-    
+
+def procesar_hash(hash, metodo=None):
+    info = ju.cargar_nodo(DESCARGAS_DIR, hash)
+    if info is None:
+        print(f"[ERROR] No se encontró información para el hash '{hash}'.")
+        sys.exit(1)
+    procesar_archivo(info["archivo"], metodo=metodo)
 
 def procesar_archivo(ruta, metodo=None):
     audio, samplerate = sf.read(ruta)
@@ -106,6 +115,8 @@ def procesar_archivo(ruta, metodo=None):
     ruta_nueva = Path(ruta).with_name(Path(ruta).stem + "_limpio.wav")
     sf.write(ruta_nueva, audio, samplerate)
     print(f"Archivo procesado y guardado: '{ruta_nueva}'")
+
+    #TODO: actualizar el nodo con la información del procesamiento (segmentos detectados, ruta del archivo procesado, etc.)
 
 def reducir_ruido(audio, samplerate):
     print(f"[INFO] Aplicando reducción de ruido...")
