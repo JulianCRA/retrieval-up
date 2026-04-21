@@ -49,10 +49,16 @@ Métodos de detección de voz (VAD):
         formatter_class = argparse.RawDescriptionHelpFormatter
     )
 
-    parser.add_argument(
+    grupo_fuentes = parser.add_mutually_exclusive_group(required=True)
+
+    grupo_fuentes.add_argument(
         "-i", "--input",
         help = "Archivo de audio o directorio a procesar",
-        required = True
+    )
+
+    grupo_fuentes.add_argument(
+        "--hash",
+        help = "Buscar contenido a partir del hash generado en el proceso de descarga",
     )
 
     parser.add_argument(
@@ -63,15 +69,17 @@ Métodos de detección de voz (VAD):
 
     args = parser.parse_args()
 
-    if not (Path(args.input).is_file() and Path(args.input).suffix.lower() == ".wav"):
-        print(f"Error: La ruta '{args.input}' no es un archivo WAV válido.")
-        sys.exit(1)
+    if args.hash:
+        procesar_hash(args.hash, args.metodo)
+    elif args.input:
+        if not (Path(args.input).is_file() and Path(args.input).suffix.lower() == ".wav"):
+            print(f"[ERROR] '{args.input}' no es un archivo WAV válido.")
+            sys.exit(1)
 
-    procesar_archivo(args)
+        procesar_archivo(args.input, args.metodo)
+    
 
-def procesar_archivo(args):
-    ruta = args.input
-    metodo = args.metodo or None
+def procesar_archivo(ruta, metodo=None):
     audio, samplerate = sf.read(ruta)
     duracion = len(audio) / samplerate
 
@@ -84,13 +92,15 @@ def procesar_archivo(args):
         print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
         segmentos = vad(audio, samplerate, metodo=metodo)
         segmentos = procesar_segmentos(segmentos)
-        audio_procesado = np.zeros_like(audio)
-        for inicio, fin in segmentos:
-            inicio_muestra = int(inicio * samplerate)
-            fin_muestra = int(fin * samplerate)
-            audio_procesado[inicio_muestra:fin_muestra] = audio[inicio_muestra:fin_muestra]
-        ruta_procesada = Path(ruta).with_name(Path(ruta).stem + "_procesado.wav")
-        sf.write(ruta_procesada, audio_procesado, samplerate)
+        
+        ## generar audio procesado con solo los segmentos de voz detectados
+        # audio_procesado = np.zeros_like(audio)
+        # for inicio, fin in segmentos:
+        #     inicio_muestra = int(inicio * samplerate)
+        #     fin_muestra = int(fin * samplerate)
+        #     audio_procesado[inicio_muestra:fin_muestra] = audio[inicio_muestra:fin_muestra]
+        # ruta_procesada = Path(ruta).with_name(Path(ruta).stem + "_procesado.wav")
+        # sf.write(ruta_procesada, audio_procesado, samplerate)
         
 
     ruta_nueva = Path(ruta).with_name(Path(ruta).stem + "_limpio.wav")
