@@ -2,10 +2,10 @@ import argparse
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
-import hashlib
 
 import compartido.json_utils as ju
-from compartido.rutas import ARCHIVO_REGISTRO, DESCARGAS_DIR
+from compartido.rutas import DESCARGAS_DIR
+from compartido.utils import obtener_identificador
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
@@ -28,7 +28,9 @@ OPTS = {
         "postprocessors": [
             {"key": "FFmpegExtractAudio", "preferredcodec": "wav", "preferredquality": "0"}
         ],
-        "postprocessor_args": ["-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le"]
+        "postprocessor_args": {
+            "FFmpegExtractAudio": ["-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le"]
+        }
     }
 
 def main():
@@ -47,9 +49,7 @@ def main():
 
     if args.source:
         determinar_fuente(args.source)
-    else:
-        print("[ERROR] Se requiere una fuente de recursos audiovisuales.")
-        sys.exit(1)
+
 
 def determinar_fuente(ruta):
     path = Path(ruta)
@@ -77,24 +77,17 @@ def procesar_recurso(uri):
     try:
         with YoutubeDL(OPTS) as ydl:
             info = ydl.extract_info(uri, download=False)
-    except (DownloadError, ExtractorError) as e:
-        print(f"[ERROR] Error al extraer información de '{uri}': {e}")
-        return
-    
-    actual_uri = info.get("webpage_url", uri)
-    hash = hashlib.sha256(actual_uri.encode("utf-8")).hexdigest()[:24]
-    if ju.cargar_registro(hash):
-        print(f"[INFO] El recurso '{actual_uri}' ya ha sido procesado previamente. Saltando descarga.")
-        return
-
-    try:
-        with YoutubeDL(OPTS) as ydl:
+            actual_uri = info.get("webpage_url", uri)
+            r_id = obtener_identificador(actual_uri)
+            if ju.cargar_registro(r_id):
+                print(f"[INFO] El recurso '{actual_uri}' ya ha sido procesado previamente. Saltando descarga.")
+                return
             ydl.download([actual_uri])
-            registrar_descarga(hash, info)
             archivo_descargado = str(Path(ydl.prepare_filename(info)).with_suffix(".wav"))
-            registrar_detalles(hash, info, archivo_descargado)
+            if registrar_descarga(r_id, actual_uri, info):
+                registrar_detalles(r_id, actual_uri, info, archivo_descargado)  
     except (DownloadError, ExtractorError) as e:
-        print(f"[ERROR] Error al descargar '{actual_uri}': {e}")
+        print(f"[ERROR] Error al procesar '{uri}': {e}")
 
 def leer_directorio(directorio):
     archivos = []
@@ -111,7 +104,7 @@ def leer_archivo_de_texto(archivo):
             path = Path(line)
             if line == "" or line.startswith("#"):
                 continue
-            elif path.is_file() and path.suffix.lower() in MEDIA_EXTS:
+            elif path.is_absolute() and path.is_file() and path.suffix.lower() in MEDIA_EXTS:
                 uris.append(path.as_uri())
             elif urlparse(line).scheme in ("http", "https"):
                 uris.append(line)
@@ -124,23 +117,36 @@ def procesar_batch(uris):
     for uri in uris:
         procesar_recurso(uri)
 
-def registrar_descarga(hash, info):
-    data = {
-        "uri": info.get("webpage_url", ""),
+def registrar_descarga(r_id, uri, info):
+    archivo_detalle = str(DESCARGAS_DIR / f"{r_id}.json")
+    data1 = {
+        "uri": uri,
         "title": info.get("title", ""),
-        "status": 1,
-        "archivo_detalle": str(DESCARGAS_DIR / f"{hash}.json"),
+        "status": 0,
+        "archivo_detalle": archivo_detalle,
     }
-    ju.anadir_registro(hash, data)
-    
-def registrar_detalles(hash, info, archivo_descargado):
-    ju.anadir_nodos(DESCARGAS_DIR / f"{hash}.json",{
-        "hash": hash,
+
+    data2 = {
+        "hash": r_id,
         "title": info.get("title", ""),
-        "uri": info.get("webpage_url", ""),
-        "archivo": archivo_descargado,
-        "status": 'OK'
+        "status": 0
+    }
+    
+    return ju.guardar_registro(r_id, data1) and ju.guardar_archivo(archivo_detalle, data2)
+    
+
+def registrar_detalles(r_id, uri, info, archivo_descargado):
+    archivo_detalle = DESCARGAS_DIR / f"{r_id}.json"
+
+    ok = ju.guardar_registro("status", 1, ruta=(r_id,))
+    ok = ok and ju.guardar_nodo(archivo_detalle, "descarga", {
+        "uri": uri,
+        "duration": info.get("duration", 0),
+        "filesize": info.get("filesize", 0),
+        "archivo_descargado": archivo_descargado
     })
+    ok = ok and ju.guardar_nodo(archivo_detalle, "status", 1)
+    return ok
     
     
 

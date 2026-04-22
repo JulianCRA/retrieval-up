@@ -1,8 +1,8 @@
 import hashlib
 
-def obtener_identificador(path):
-    path_str = str(path)
-    return hashlib.sha256(path_str.encode()).hexdigest()[:16]
+def obtener_identificador(semilla, length=16):
+    semilla_str = str(semilla)
+    return hashlib.sha256(semilla_str.encode()).hexdigest()[:length]
 
 def obtener_dispositivo():
     """Devuelve el dispositivo torch disponible (cuda o cpu) y emite una advertencia
