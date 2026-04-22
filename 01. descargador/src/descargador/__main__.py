@@ -91,7 +91,8 @@ def procesar_recurso(uri):
         with YoutubeDL(OPTS) as ydl:
             ydl.download([actual_uri])
             registrar_descarga(hash, info)
-            registrar_detalles(hash, info, ydl.prepare_filename(info))
+            archivo_descargado = str(Path(ydl.prepare_filename(info)).with_suffix(".wav"))
+            registrar_detalles(hash, info, archivo_descargado)
     except (DownloadError, ExtractorError) as e:
         print(f"[ERROR] Error al descargar '{actual_uri}': {e}")
 
