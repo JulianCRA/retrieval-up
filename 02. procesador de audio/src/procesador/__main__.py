@@ -52,15 +52,9 @@ Métodos de detección de voz (VAD):
         formatter_class = argparse.RawDescriptionHelpFormatter
     )
 
-    grupo_fuentes = parser.add_mutually_exclusive_group(required=True)
-
-    grupo_fuentes.add_argument(
-        "-i", "--input",
-        help = "Archivo de audio o directorio a procesar",
-    )
-
-    grupo_fuentes.add_argument(
+    parser.add_argument(
         "--hash",
+        required = True,
         help = "Buscar contenido a partir del hash generado en el proceso de descarga",
     )
 
@@ -72,14 +66,7 @@ Métodos de detección de voz (VAD):
 
     args = parser.parse_args()
 
-    if args.hash:
-        procesar_hash(args.hash, args.metodo)
-    elif args.input:
-        if not (Path(args.input).is_file() and Path(args.input).suffix.lower() == ".wav"):
-            print(f"[ERROR] '{args.input}' no es un archivo WAV válido.")
-            sys.exit(1)
-
-        procesar_archivo(args.input, args.metodo)
+    procesar_hash(args.hash, args.metodo)
 
 def procesar_hash(hash, metodo=None):
     info = ju.cargar_nodo(DESCARGAS_DIR, hash)
