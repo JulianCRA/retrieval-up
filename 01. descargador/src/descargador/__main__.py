@@ -29,9 +29,8 @@ OPTS = {
         "postprocessors": [
             {"key": "FFmpegExtractAudio", "preferredcodec": "wav", "preferredquality": "0"}
         ],
-        # "postprocessor_args": ["-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le"]
         "postprocessor_args": {
-            "ffmpegextractaudio": ["-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le"]
+            "extractaudio+ffmpeg_o": ["-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le"]
         }
     }
 
