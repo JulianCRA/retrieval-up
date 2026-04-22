@@ -2,10 +2,10 @@ import argparse
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
-import hashlib
 
 import compartido.json_utils as ju
-from compartido.rutas import ARCHIVO_REGISTRO, DESCARGAS_DIR
+from compartido.rutas import DESCARGAS_DIR
+from compartido.utils import obtener_identificador
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
@@ -82,7 +82,7 @@ def procesar_recurso(uri):
         return
     
     actual_uri = info.get("webpage_url", uri)
-    hash = hashlib.sha256(actual_uri.encode("utf-8")).hexdigest()[:24]
+    hash = obtener_identificador(actual_uri)
     if ju.cargar_registro(hash):
         print(f"[INFO] El recurso '{actual_uri}' ya ha sido procesado previamente. Saltando descarga.")
         return
@@ -131,15 +131,14 @@ def registrar_descarga(hash, info):
         "status": 1,
         "archivo_detalle": str(DESCARGAS_DIR / f"{hash}.json"),
     }
-    ju.anadir_registro(hash, data)
+    ju.guardar_registro(hash, data)
     
 def registrar_detalles(hash, info, archivo_descargado):
-    ju.anadir_nodos(DESCARGAS_DIR / f"{hash}.json",{
+    ju.guardar_archivo(DESCARGAS_DIR / f"{hash}.json",{
         "hash": hash,
         "title": info.get("title", ""),
         "uri": info.get("webpage_url", ""),
-        "archivo": archivo_descargado,
-        "status": 'OK'
+        "archivo": archivo_descargado
     })
     
     
