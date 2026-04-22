@@ -4,6 +4,7 @@ from pathlib import Path
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
+from compartido.utils import cronometrar
 
 import soundfile as sf
 import noisereduce as nr
@@ -84,12 +85,16 @@ def procesar_archivo(ruta, metodo=None, folder=None):
     print(f"Procesando '{ruta}' - Duración: {duracion:.2f} segundos ({int(duracion / 3600)}:{int((duracion % 3600) / 60):02d}:{int(duracion % 60):02d}:{int((duracion * 1000) % 1000):03d})")
 
     audio = normalizar_volumen(audio)
+    tiempo_norm_vol = normalizar_volumen.elapsed
     audio = reducir_ruido(audio, samplerate)
-    audio = normalizar_picos(audio)
+    tiempo_reduccion = reducir_ruido.elapsed
+    audio= normalizar_picos(audio)
+    tiempo_norm_picos = normalizar_picos.elapsed
     segmentos = None
     if metodo is not None:
         print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
         segmentos = vad(audio, samplerate, metodo=metodo)
+        tiempo_vad = vad.elapsed
         segmentos = procesar_segmentos(segmentos)
 
         ## generar audio procesado con solo los segmentos de voz detectados
@@ -101,16 +106,18 @@ def procesar_archivo(ruta, metodo=None, folder=None):
     sf.write(ruta_nueva, audio, samplerate)
     print(f"Archivo procesado y guardado: '{ruta_nueva}'")
 
-    #TODO: actualizar el nodo con la información del procesamiento (segmentos detectados, ruta del archivo procesado, etc.)
+    # actualizar el nodo con la información del procesamiento
     if folder is not None:
-        data = {
-            "metodo_vad": metodo,
-            "cantidad_segmentos": len(segmentos) if segmentos else 0,
-            "segmentos": segmentos,    
+        tiempos = {
+            "normalizacion_volumen": tiempo_norm_vol,
+            "reduccion_ruido": tiempo_reduccion,
+            "normalizacion_picos": tiempo_norm_picos,
+            "vad": tiempo_vad if segmentos else 0
         }
-        ruta_info = folder / "info.json"
-        ju.guardar_nodo(ruta_info, "procesamiento", data)
+        guardar_datos_procesamiento(folder, metodo, segmentos, tiempos)
 
+
+@cronometrar(etiqueta="Reduccion de ruido")
 def reducir_ruido(audio, samplerate):
     print(f"[INFO] Aplicando reducción de ruido...")
     n = samplerate  # 1 segundo por muestra
@@ -128,6 +135,7 @@ def reducir_ruido(audio, samplerate):
     )
     return audio
 
+@cronometrar(etiqueta="Normalización de picos")
 def normalizar_picos(audio):
     print(f"[INFO] Normalizando picos de audio...")
     # ajustar el audio para que el pico máximo esté a -1 dBFS
@@ -139,6 +147,7 @@ def normalizar_picos(audio):
 
     return audio * (target_linear / picos)
 
+@cronometrar(etiqueta="Normalización de volumen")
 def normalizar_volumen(audio, umbral_db=-20.0):
     print(f"[INFO] Normalizando volumen del audio...")
     rms = np.sqrt(np.mean(audio**2))
@@ -148,6 +157,7 @@ def normalizar_volumen(audio, umbral_db=-20.0):
     factor_normalizacion = umbral_lineal / rms
     return audio * factor_normalizacion
 
+@cronometrar(etiqueta="VAD")
 def vad(audio, samplerate, metodo="energia"):
     if metodo == "energia":
         return vad_energia(audio, samplerate)
@@ -186,6 +196,26 @@ def generar_audio_de_prueba(audio, samplerate, segmentos, folder):
         audio_procesado[inicio_muestra:fin_muestra] = audio[inicio_muestra:fin_muestra]
     ruta_procesada = folder / "segmentos_con_silencio.wav"
     sf.write(ruta_procesada, audio_procesado, samplerate)
+
+def guardar_datos_procesamiento(folder, metodo, segmentos, tiempos):
+    ruta_info = folder / "info.json"
+    data = {
+        "metodo_vad": metodo,
+        "cantidad_segmentos": len(segmentos) if segmentos else 0,
+        "archivo_segmentos": str(folder / "segmentos.json") if segmentos else None,
+        "tiempo_normalizacion_volumen": tiempos.get("normalizacion_volumen", 0),
+        "tiempo_reduccion_ruido": tiempos.get("reduccion_ruido", 0),
+        "tiempo_normalizacion_picos": tiempos.get("normalizacion_picos", 0),
+        "tiempo_vad": tiempos.get("vad", 0),
+        "tiempo_total": sum(tiempos.values())
+    }
+    ju.guardar_nodo(ruta_info, "procesamiento", data)
+
+    ju.guardar_archivo(folder / "segmentos.json", {
+        "segmentos": segmentos
+    })
+
+    ju.guardar_nodo(ruta_info, "status", 2)
 
 if __name__ == "__main__":
     main()
