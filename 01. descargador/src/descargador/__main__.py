@@ -77,13 +77,22 @@ def procesar_recurso(uri):
             info = ydl.extract_info(uri, download=False)
             actual_uri = info.get("webpage_url", uri)
             r_id = obtener_identificador(actual_uri)
+
             if ju.cargar_registro(r_id):
                 print(f"[INFO] El recurso '{actual_uri}' ya ha sido procesado previamente. Saltando descarga.")
                 return
-            ydl.download([actual_uri])
-            archivo_descargado = str(Path(ydl.prepare_filename(info)).with_suffix(".wav"))
+
+            carpeta = DESCARGAS_DIR / r_id
+            carpeta.mkdir(exist_ok=True)
+
+            opts = {**OPTS, "outtmpl": str(carpeta / "audio_original.%(ext)s")}
+            with YoutubeDL(opts) as ydl2:
+                ydl2.download([actual_uri])
+                archivo_descargado = str(Path(ydl2.prepare_filename(info)).with_suffix(".wav"))
+
             if registrar_descarga(r_id, actual_uri, info):
-                registrar_detalles(r_id, actual_uri, info, archivo_descargado)  
+                registrar_detalles(r_id, actual_uri, info, archivo_descargado)
+
     except (DownloadError, ExtractorError) as e:
         print(f"[ERROR] Error al procesar '{uri}': {e}")
 
@@ -116,26 +125,22 @@ def procesar_batch(uris):
         procesar_recurso(uri)
 
 def registrar_descarga(r_id, uri, info):
-    archivo_detalle = str(DESCARGAS_DIR / f"{r_id}.json")
+    archivo_detalle = DESCARGAS_DIR / r_id / "info.json"
     data1 = {
         "uri": uri,
         "title": info.get("title", ""),
         "status": 0,
-        "archivo_detalle": archivo_detalle,
+        "archivo_detalle": str(archivo_detalle),
     }
-
     data2 = {
         "hash": r_id,
         "title": info.get("title", ""),
         "status": 0
     }
-    
     return ju.guardar_registro(r_id, data1) and ju.guardar_archivo(archivo_detalle, data2)
-    
 
 def registrar_detalles(r_id, uri, info, archivo_descargado):
-    archivo_detalle = DESCARGAS_DIR / f"{r_id}.json"
-
+    archivo_detalle = DESCARGAS_DIR / r_id / "info.json"
     ok = ju.guardar_registro("status", 1, ruta=(r_id,))
     ok = ok and ju.guardar_nodo(archivo_detalle, "descarga", {
         "uri": uri,
