@@ -157,12 +157,12 @@ def vad(audio, samplerate, metodo="energia"):
         return None
 
 
-def procesar_segmentos(segmentos):
-    # anadir 0.3segundos a los segmentos para evitar cortar palabras al inicio o final
+def procesar_segmentos(segmentos, margen=0.2):
+    # anadir margen a los segmentos para evitar cortar palabras al inicio o final
     segmentos_procesados = []
     for inicio, fin in segmentos:
-        inicio_procesado = max(0, inicio - 0.3)
-        fin_procesado = fin + 0.3
+        inicio_procesado = max(0, inicio - margen)
+        fin_procesado = fin + margen
         segmentos_procesados.append((round(inicio_procesado, 3), round(fin_procesado, 3)))
 
     # fusionar segmentos que se solapan
