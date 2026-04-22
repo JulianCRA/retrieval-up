@@ -1,5 +1,8 @@
 import hashlib
 
+import time
+import functools
+
 def obtener_identificador(semilla, length=16):
     semilla_str = str(semilla)
     return hashlib.sha256(semilla_str.encode()).hexdigest()[:length]
@@ -29,3 +32,24 @@ def obtener_dispositivo():
                 stacklevel=2
             )
     return torch.device("cpu")
+
+def cronometrar(func=None, *, etiqueta=None):
+    """Decorator que imprime el tiempo de ejecución de una función.
+    
+    Uso directo:       @cronometrar
+    Con etiqueta:      @cronometrar(etiqueta="Descarga")
+    """
+    if func is None:
+        return lambda f: cronometrar(f, etiqueta=etiqueta)
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        nombre = etiqueta or func.__name__
+        inicio = time.perf_counter()
+        resultado = func(*args, **kwargs)
+        wrapper.elapsed = time.perf_counter() - inicio
+        print(f"[TIEMPO] {nombre}: {wrapper.elapsed:.2f}s")
+        return resultado
+
+    wrapper.elapsed = None
+    return wrapper
