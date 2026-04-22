@@ -69,13 +69,14 @@ Métodos de detección de voz (VAD):
     procesar_hash(args.hash, args.metodo)
 
 def procesar_hash(hash, metodo=None):
-    info = ju.cargar_archivo(DESCARGAS_DIR / f"{hash}.json")
+    ruta_info = DESCARGAS_DIR / f"{hash}.json"
+    info = ju.cargar_archivo(ruta_info)
     if info is None:
         print(f"[ERROR] No se encontró información para el hash '{hash}'.")
         sys.exit(1)
-    procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo)
+    procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo, ruta_info=ruta_info)
 
-def procesar_archivo(ruta, metodo=None):
+def procesar_archivo(ruta, metodo=None, ruta_info=None):
     audio, samplerate = sf.read(ruta)
     duracion = len(audio) / samplerate
 
@@ -84,19 +85,15 @@ def procesar_archivo(ruta, metodo=None):
     audio = reducir_ruido(audio, samplerate)
     audio = normalizar_picos(audio)
     audio = normalizar_volumen(audio)
+    segmentos = None
     if metodo is not None:
         print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
         segmentos = vad(audio, samplerate, metodo=metodo)
         segmentos = procesar_segmentos(segmentos)
-        
+
         ## generar audio procesado con solo los segmentos de voz detectados
-        # audio_procesado = np.zeros_like(audio)
-        # for inicio, fin in segmentos:
-        #     inicio_muestra = int(inicio * samplerate)
-        #     fin_muestra = int(fin * samplerate)
-        #     audio_procesado[inicio_muestra:fin_muestra] = audio[inicio_muestra:fin_muestra]
-        # ruta_procesada = Path(ruta).with_name(Path(ruta).stem + "_procesado.wav")
-        # sf.write(ruta_procesada, audio_procesado, samplerate)
+        generar_audio_de_prueba(audio, samplerate, segmentos, ruta_info)
+       
         
 
     ruta_nueva = Path(ruta).with_name(Path(ruta).stem + "_limpio.wav")
@@ -104,25 +101,29 @@ def procesar_archivo(ruta, metodo=None):
     print(f"Archivo procesado y guardado: '{ruta_nueva}'")
 
     #TODO: actualizar el nodo con la información del procesamiento (segmentos detectados, ruta del archivo procesado, etc.)
+    if ruta_info is not None:
+        data = {
+            "metodo_vad": metodo,
+            "cantidad_segmentos": len(segmentos) if segmentos else 0,
+            "segmentos": segmentos,    
+        }
+        ju.guardar_nodo(ruta_info, "procesamiento", data)
 
 def reducir_ruido(audio, samplerate):
     print(f"[INFO] Aplicando reducción de ruido...")
-    # Aplicar reducción de ruido no estacionario con una reducción del 50%
+    n = samplerate  # 1 segundo por muestra
+    total = len(audio)
+    # tomar muestras de ruido cada 5% del audio para obtener una representación representativa del ruido de fondo
+    puntos = [int(total * p) for p in np.arange(0.05, 1.0, 0.05)]  # 5%, 10%, ..., 95%
+    muestras = [audio[p:p + n] for p in puntos if p + n <= total]
+    muestra_ruido = np.concatenate(muestras)
     audio = nr.reduce_noise(
-        y=audio, 
-        sr=samplerate,
-        stationary=False,
-        prop_decrease=0.5
-    )
-
-    # Aplicar una reduccion de ruido estacionario al 80% para eliminar el ruido de fondo constante
-    audio = nr.reduce_noise(
-        y=audio, 
+        y=audio,
+        y_noise=muestra_ruido,
         sr=samplerate,
         stationary=True,
         prop_decrease=0.8
     )
-
     return audio
 
 def normalizar_picos(audio):
@@ -156,7 +157,6 @@ def vad(audio, samplerate, metodo="energia"):
         print(f"[WARNING] Método VAD '{metodo}' no reconocido.")
         return None
 
-
 def procesar_segmentos(segmentos, margen=0.2):
     # anadir margen a los segmentos para evitar cortar palabras al inicio o final
     segmentos_procesados = []
@@ -173,7 +173,17 @@ def procesar_segmentos(segmentos, margen=0.2):
         else:
             segmentos_fusionados[-1] = (segmentos_fusionados[-1][0], max(segmentos_fusionados[-1][1], fin))
 
+    print(f"[INFO] {len(segmentos_fusionados)} segmentos luego de aplicar margenes")
     return segmentos_fusionados
+
+def generar_audio_de_prueba(audio, samplerate, segmentos, ruta):
+    audio_procesado = np.zeros_like(audio)
+    for inicio, fin in segmentos:
+        inicio_muestra = int(inicio * samplerate)
+        fin_muestra = int(fin * samplerate)
+        audio_procesado[inicio_muestra:fin_muestra] = audio[inicio_muestra:fin_muestra]
+    ruta_procesada = Path(ruta).with_name(Path(ruta).stem + "_procesado.wav")
+    sf.write(ruta_procesada, audio_procesado, samplerate)
 
 if __name__ == "__main__":
     main()
