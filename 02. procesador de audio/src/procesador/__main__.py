@@ -69,22 +69,23 @@ Métodos de detección de voz (VAD):
     procesar_hash(args.hash, args.metodo)
 
 def procesar_hash(hash, metodo=None):
-    ruta_info = DESCARGAS_DIR / f"{hash}.json"
+    folder = DESCARGAS_DIR / hash
+    ruta_info = folder / "info.json"
     info = ju.cargar_archivo(ruta_info)
     if info is None:
         print(f"[ERROR] No se encontró información para el hash '{hash}'.")
         sys.exit(1)
-    procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo, ruta_info=ruta_info)
+    procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo, folder=folder)
 
-def procesar_archivo(ruta, metodo=None, ruta_info=None):
+def procesar_archivo(ruta, metodo=None, folder=None):
     audio, samplerate = sf.read(ruta)
     duracion = len(audio) / samplerate
 
     print(f"Procesando '{ruta}' - Duración: {duracion:.2f} segundos ({int(duracion / 3600)}:{int((duracion % 3600) / 60):02d}:{int(duracion % 60):02d}:{int((duracion * 1000) % 1000):03d})")
 
+    audio = normalizar_volumen(audio)
     audio = reducir_ruido(audio, samplerate)
     audio = normalizar_picos(audio)
-    audio = normalizar_volumen(audio)
     segmentos = None
     if metodo is not None:
         print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
@@ -92,21 +93,22 @@ def procesar_archivo(ruta, metodo=None, ruta_info=None):
         segmentos = procesar_segmentos(segmentos)
 
         ## generar audio procesado con solo los segmentos de voz detectados
-        generar_audio_de_prueba(audio, samplerate, segmentos, ruta_info)
+        generar_audio_de_prueba(audio, samplerate, segmentos, folder)
        
         
 
-    ruta_nueva = Path(ruta).with_name(Path(ruta).stem + "_limpio.wav")
+    ruta_nueva = folder / "audio_procesado.wav"
     sf.write(ruta_nueva, audio, samplerate)
     print(f"Archivo procesado y guardado: '{ruta_nueva}'")
 
     #TODO: actualizar el nodo con la información del procesamiento (segmentos detectados, ruta del archivo procesado, etc.)
-    if ruta_info is not None:
+    if folder is not None:
         data = {
             "metodo_vad": metodo,
             "cantidad_segmentos": len(segmentos) if segmentos else 0,
             "segmentos": segmentos,    
         }
+        ruta_info = folder / "info.json"
         ju.guardar_nodo(ruta_info, "procesamiento", data)
 
 def reducir_ruido(audio, samplerate):
@@ -176,13 +178,13 @@ def procesar_segmentos(segmentos, margen=0.2):
     print(f"[INFO] {len(segmentos_fusionados)} segmentos luego de aplicar margenes")
     return segmentos_fusionados
 
-def generar_audio_de_prueba(audio, samplerate, segmentos, ruta):
+def generar_audio_de_prueba(audio, samplerate, segmentos, folder):
     audio_procesado = np.zeros_like(audio)
     for inicio, fin in segmentos:
         inicio_muestra = int(inicio * samplerate)
         fin_muestra = int(fin * samplerate)
         audio_procesado[inicio_muestra:fin_muestra] = audio[inicio_muestra:fin_muestra]
-    ruta_procesada = Path(ruta).with_name(Path(ruta).stem + "_procesado.wav")
+    ruta_procesada = folder / "segmentos_con_silencio.wav"
     sf.write(ruta_procesada, audio_procesado, samplerate)
 
 if __name__ == "__main__":
