@@ -35,15 +35,13 @@ def cargar_nodo(archivo, key, ruta=()):
     contenedor = _navegar(registros, ruta)
     return contenedor.get(key, None)
 
-def anadir_nodo(archivo, key, valor, ruta=()):
+def guardar_nodo(archivo, key, valor, ruta=()):
     registros = cargar_archivo(archivo)
     contenedor = _navegar(registros, ruta)
-    if key in contenedor:
-        raise KeyError(f"La clave '{key}' ya existe. Usa reemplazar_nodo para sobrescribir.")
     contenedor[key] = valor
     guardar_archivo(archivo, registros)
 
-def anadir_nodos(archivo, datos, ruta=()):
+def guardar_nodos(archivo, datos, ruta=()):
     registros = cargar_archivo(archivo)
     contenedor = _navegar(registros, ruta)
     conflictos = set(datos) & set(contenedor)
@@ -52,13 +50,6 @@ def anadir_nodos(archivo, datos, ruta=()):
     contenedor.update(datos)
     guardar_archivo(archivo, registros)
 
-def reemplazar_nodo(archivo, key, valor, ruta=()):
-    registros = cargar_archivo(archivo)
-    contenedor = _navegar(registros, ruta)
-    if key not in contenedor:
-        raise KeyError(f"La clave '{key}' no existe. Usa anadir_nodo para crear.")
-    contenedor[key] = valor
-    guardar_archivo(archivo, registros)
 
 def eliminar_nodo(archivo, key, ruta=()):
     registros = cargar_archivo(archivo)
@@ -71,11 +62,9 @@ def eliminar_nodo(archivo, key, ruta=()):
 
 def cargar_registro(key, ruta=()):
     return cargar_nodo(ARCHIVO_REGISTRO, key, ruta)
-def anadir_registro(key, valor, ruta=()):
-    anadir_nodo(ARCHIVO_REGISTRO, key, valor, ruta)
-def anadir_registros(datos, ruta=()):
-    anadir_nodos(ARCHIVO_REGISTRO, datos, ruta)
-def reemplazar_registro(key, valor, ruta=()):
-    reemplazar_nodo(ARCHIVO_REGISTRO, key, valor, ruta)
+def guardar_registro(key, valor, ruta=()):
+    guardar_nodo(ARCHIVO_REGISTRO, key, valor, ruta)
+def guardar_registros(datos, ruta=()):
+    guardar_nodos(ARCHIVO_REGISTRO, datos, ruta)
 def eliminar_registro(key, ruta=()):
     eliminar_nodo(ARCHIVO_REGISTRO, key, ruta)
