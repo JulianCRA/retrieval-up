@@ -69,11 +69,11 @@ Métodos de detección de voz (VAD):
     procesar_hash(args.hash, args.metodo)
 
 def procesar_hash(hash, metodo=None):
-    info = ju.cargar_nodo(DESCARGAS_DIR, hash)
+    info = ju.cargar_archivo(DESCARGAS_DIR / f"{hash}.json")
     if info is None:
         print(f"[ERROR] No se encontró información para el hash '{hash}'.")
         sys.exit(1)
-    procesar_archivo(info["archivo"], metodo=metodo)
+    procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo)
 
 def procesar_archivo(ruta, metodo=None):
     audio, samplerate = sf.read(ruta)
