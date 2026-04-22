@@ -89,11 +89,16 @@ def procesar_recurso(uri):
 
             opts = {**OPTS, "outtmpl": str(carpeta / "audio_original.%(ext)s")}
             with YoutubeDL(opts) as ydl2:
-                ydl2.download([actual_uri])
+                inicio = time.perf_counter()
+                info = ydl2.extract_info(actual_uri, download=True)
+                total = time.perf_counter() - inicio
+                info['tiempo_descarga'] = total
+                
+                print(f"[INFO] Descarga completada en {total:.2f} segundos.")
                 archivo_descargado = str(Path(ydl2.prepare_filename(info)).with_suffix(".wav"))
 
-            if registrar_descarga(r_id, actual_uri, info):
-                registrar_detalles(r_id, actual_uri, info, archivo_descargado)
+                if registrar_descarga(r_id, actual_uri, info):
+                    registrar_detalles(r_id, actual_uri, info, archivo_descargado)
 
     except (DownloadError, ExtractorError) as e:
         print(f"[ERROR] Error al procesar '{uri}': {e}")
@@ -146,9 +151,11 @@ def registrar_detalles(r_id, uri, info, archivo_descargado):
     ok = ju.guardar_registro("status", 1, ruta=(r_id,))
     ok = ok and ju.guardar_nodo(archivo_detalle, "descarga", {
         "uri": uri,
-        "duration": info.get("duration", 0),
-        "filesize": info.get("filesize", 0),
-        "archivo_descargado": archivo_descargado
+        "fuente": info.get("extractor_key", ""),
+        "duracion": info.get("duration", 0),
+        "tamano": info.get("filesize", 0),
+        "archivo_descargado": archivo_descargado,
+        "tiempo_descarga": info.get("tiempo_descarga", 0)
     })
     ok = ok and ju.guardar_nodo(archivo_detalle, "status", 1)
     return ok
