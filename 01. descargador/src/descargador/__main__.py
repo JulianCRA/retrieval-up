@@ -2,6 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
+import time
 
 import compartido.json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
@@ -78,7 +79,8 @@ def procesar_recurso(uri):
             actual_uri = info.get("webpage_url", uri)
             r_id = obtener_identificador(actual_uri)
 
-            if ju.cargar_registro(r_id):
+            reg = ju.cargar_registro(r_id)
+            if reg and reg.get("status", 0) >= 1:
                 print(f"[INFO] El recurso '{actual_uri}' ya ha sido procesado previamente. Saltando descarga.")
                 return
 
