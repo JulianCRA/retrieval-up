@@ -17,8 +17,10 @@ def guardar_archivo(ruta, datos):
     try:
         with open(ruta, "w", encoding="utf-8") as f:
             json.dump(datos, f, indent=4, ensure_ascii=False)
+            return True
     except IOError as e:
         print(f"[ERROR] Error al guardar el archivo {ruta}: {e}")
+        return False
 
 
 def _navegar(datos, ruta):
@@ -39,16 +41,13 @@ def guardar_nodo(archivo, key, valor, ruta=()):
     registros = cargar_archivo(archivo)
     contenedor = _navegar(registros, ruta)
     contenedor[key] = valor
-    guardar_archivo(archivo, registros)
+    return guardar_archivo(archivo, registros)
 
 def guardar_nodos(archivo, datos, ruta=()):
     registros = cargar_archivo(archivo)
     contenedor = _navegar(registros, ruta)
-    conflictos = set(datos) & set(contenedor)
-    if conflictos:
-        raise KeyError(f"Las claves {conflictos} ya existen. Usa reemplazar_nodo para sobrescribir.")
     contenedor.update(datos)
-    guardar_archivo(archivo, registros)
+    return guardar_archivo(archivo, registros)
 
 
 def eliminar_nodo(archivo, key, ruta=()):
@@ -57,14 +56,14 @@ def eliminar_nodo(archivo, key, ruta=()):
     if key not in contenedor:
         raise KeyError(f"La clave '{key}' no existe.")
     del contenedor[key]
-    guardar_archivo(archivo, registros)
+    return guardar_archivo(archivo, registros)
 
 
 def cargar_registro(key, ruta=()):
     return cargar_nodo(ARCHIVO_REGISTRO, key, ruta)
 def guardar_registro(key, valor, ruta=()):
-    guardar_nodo(ARCHIVO_REGISTRO, key, valor, ruta)
+    return guardar_nodo(ARCHIVO_REGISTRO, key, valor, ruta)
 def guardar_registros(datos, ruta=()):
-    guardar_nodos(ARCHIVO_REGISTRO, datos, ruta)
+    return guardar_nodos(ARCHIVO_REGISTRO, datos, ruta)
 def eliminar_registro(key, ruta=()):
-    eliminar_nodo(ARCHIVO_REGISTRO, key, ruta)
+    return eliminar_nodo(ARCHIVO_REGISTRO, key, ruta)
