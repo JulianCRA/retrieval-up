@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "transcriptor"
+version = "0.1.0"
+description = "Genera transcripciones de archivos de audio"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "vosk>=0.3.45",
+    "soundfile>=0.12",
+    "numpy>=1.26"
+]
+
+
+[project.optional-dependencies]
+# Vosk queda instalado por defecto como backend base/fallback.
+# Los motores opcionales se exponen como extras explicitos por backend y
+# dispositivo para evitar combinaciones ambiguas al instalar.
+
+# Whisper usa la misma dependencia en CPU y GPU; la diferencia real depende del
+# entorno CUDA disponible al ejecutar.
+# CPU: pip install -e ".[whisper]"
+# GPU: pip install -e ".[whisper]"
+whisper = [
+    "faster-whisper>=1.0",
+]
+
+# Qwen3 ASR en CPU:
+#   pip install -e ".[qwen3-asr]"
+# Qwen3 ASR en GPU (CUDA 12.8):
+#   pip install -e ".[qwen3-asr]" --extra-index-url https://download.pytorch.org/whl/cu128
+qwen3-asr = [
+    "torch>=2.0",
+    "qwen-asr",
+]
+
+# Cohere Transcribe en CPU:
+#   pip install -e ".[cohere-transcribe]"
+# Cohere Transcribe en GPU (CUDA 12.8):
+#   pip install -e ".[cohere-transcribe]" --extra-index-url https://download.pytorch.org/whl/cu128
+cohere-transcribe = [
+    "torch>=2.0",
+    "transformers>=5.4.0",
+    "accelerate",
+    "librosa",
+    "sentencepiece",
+    "protobuf",
+]
+
+[project.scripts]
+asr = "transcriptor.__main__:main"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
