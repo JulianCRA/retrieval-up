@@ -209,13 +209,15 @@ def guardar_datos_procesamiento(folder, metodo, segmentos, tiempos):
         "tiempo_vad": tiempos.get("vad", 0),
         "tiempo_total": sum(tiempos.values())
     }
-    ju.guardar_nodo(ruta_info, "procesamiento", data)
 
-    ju.guardar_archivo(folder / "segmentos.json", {
+    ok = ju.guardar_nodo(ruta_info, "procesamiento", data)
+
+    ok = ok and ju.guardar_archivo(folder / "segmentos.json", {
         "segmentos": segmentos
     })
 
-    ju.guardar_nodo(ruta_info, "status", 2)
+    if ok:
+        ju.guardar_nodo(ruta_info, "status", 2)
 
 if __name__ == "__main__":
     main()
