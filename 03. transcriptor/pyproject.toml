@@ -49,6 +49,31 @@ cohere-transcribe = [
     "protobuf",
 ]
 
+# Wav2Vec2 Spanish en CPU:
+#   pip install -e ".[wav2vec2-spanish]"
+# Wav2Vec2 Spanish en GPU (CUDA 12.8):
+#   pip install -e ".[wav2vec2-spanish]" --extra-index-url https://download.pytorch.org/whl/cu128
+wav2vec2-spanish = [
+    "torch>=2.0",
+    "transformers>=4.30",
+    "librosa",
+]
+
+# Todos en CPU
+#   pip install -e ".[todos]"
+# Todos en GPU
+#   pip install -e ".[todos]" --extra-index-url https://download.pytorch.org/whl/cu128
+todos = [
+    "faster-whisper>=1.0",
+    "torch>=2.0",
+    "qwen-asr",
+    "transformers>=5.4.0",
+    "accelerate",
+    "librosa",
+    "sentencepiece",
+    "protobuf",
+]
+
 [project.scripts]
 asr = "transcriptor.__main__:main"
 
