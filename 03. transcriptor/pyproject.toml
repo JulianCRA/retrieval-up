@@ -67,7 +67,7 @@ todos = [
     "faster-whisper>=1.0",
     "torch>=2.0",
     "qwen-asr",
-    "transformers>=5.4.0",
+    "transformers==4.57.6",
     "accelerate",
     "librosa",
     "sentencepiece",
