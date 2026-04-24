@@ -101,3 +101,11 @@ Modelos ASR de la familia Qwen3 especializados en transcripción multilingüe de
     Nota: puede ejecutarse en CPU, pero la velocidad de inferencia se reduce considerablemente.
 """
 
+INFO = {
+    "INFO_ASR": INFO_ASR,
+    "INFO_VOSK": INFO_VOSK,
+    "INFO_WAC2VEC": INFO_WAC2VEC,
+    "INFO_COHERE": INFO_COHERE,
+    "INFO_WHISPER": INFO_WHISPER,
+    "INFO_QWEN": INFO_QWEN
+}

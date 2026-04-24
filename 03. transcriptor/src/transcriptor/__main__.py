@@ -6,9 +6,10 @@ from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
 from compartido.utils import cronometrar
 
+from .texto import INFO
+
 def main():
-    info_asr = """INFO
-"""
+    info_asr = INFO["INFO_ASR"]
 
     parser = argparse.ArgumentParser(
         prog = "transcriptor",
@@ -23,13 +24,24 @@ def main():
         help = "Obtener segmentos de audio a partir del hash generado en el proceso de descarga",
     )
 
-    parser.add_argument(
+    grupo = parser.add_mutually_exclusive_group()
+    grupo.add_argument(
         "-m", "--modelo",
         help = "Escoger el modelo de transcripción automática (ASR) para convertir audio a texto [vosk|wac2vec|cohere|whisper|qwen]",
         choices = ["vosk", "wac2vec", "cohere", "whisper", "qwen"],
     )
 
+    grupo.add_argument(
+        "-i", "--info",
+        help = "Mostrar información detallada sobre los modelos de ASR disponibles",
+        choices=["vosk", "wac2vec", "cohere", "whisper", "qwen"],
+    )
+
     args = parser.parse_args()
+
+    if args.info:
+        print(INFO[f"INFO_{args.info.upper()}"])
+        sys.exit(0)
 
     procesar_hash(args.hash, args.modelo)
 
