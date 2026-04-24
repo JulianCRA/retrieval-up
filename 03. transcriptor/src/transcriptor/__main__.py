@@ -70,6 +70,11 @@ def procesar_hash(hash, modelo="vosk"):
 @cronometrar
 def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo="vosk"):
     print(f"[INFO] Transcribiendo '{audio_path.name}' usando el modelo '{modelo}'...")
+    paths = {
+        "audio": audio_path,
+        "segmentos": segmentos_path,
+        "transcripciones": transcripciones_path
+    }
     if modelo == "vosk":
         from .vosk_asr import transcribir_vosk
-        transcribir_vosk(audio_path, folder)
+        transcribir_vosk(audio_path, paths)

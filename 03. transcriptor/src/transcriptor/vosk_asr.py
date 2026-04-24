@@ -7,8 +7,6 @@ from compartido.json_utils import cargar_archivo
 
 import wave
 
-from matplotlib.pylab import size
-
 MODELOS_DIR = DESCARGAS_DIR / "modelos" / "vosk"
 
 MODELO_ES = "vosk-model-es-0.42" # opcion: vosk-model-small-es-0.42 (más ligero pero menos preciso)
@@ -55,20 +53,20 @@ def _obtener_modelo_es() -> Path:
     return ruta_modelo
 
 
-def transcribir_vosk(audio_path, folder) -> None:
+def transcribir_vosk(audio_path, paths) -> None:
     ruta_modelo = _obtener_modelo_es()
     print(f"[INFO] Transcribiendo '{audio_path}' con Vosk...")
     audio = wave.open(str(audio_path), "rb")
     sample_rate = audio.getframerate()
     
-    segmentos = cargar_archivo(folder / "segmentos.json")
+    segmentos = cargar_archivo(paths["segmentos"])
 
     for inicio, fin in segmentos["segmentos"]:
-        inicio = int(inicio * sample_rate)
-        duracion = int((fin - inicio) * sample_rate)
+        frame_inicio = int(inicio * sample_rate)
+        num_frames = int((fin - inicio) * sample_rate)
 
-        audio.setpos(inicio)
-        segmento = audio.readframes(duracion)
+        audio.setpos(frame_inicio)
+        segmento = audio.readframes(num_frames)
 
         # print el tamano en Kilo-bytes del segmento
-        print(f"[DEBUG] Procesando segmento {inicio:.2f}s - {fin:.2f}s ({len(segmento)/1024:.2f} KB)")
+        print(f"[DEBUG] Procesando segmento {inicio:.2f}s - {fin:.2f}s <{fin - inicio:.2f}s - {len(segmento)/1024:.2f} KB>")
