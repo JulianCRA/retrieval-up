@@ -3,6 +3,11 @@ from pathlib import Path
 from urllib.request import urlretrieve
 
 from compartido.rutas import DESCARGAS_DIR
+from compartido.json_utils import cargar_archivo
+
+import wave
+
+from matplotlib.pylab import size
 
 MODELOS_DIR = DESCARGAS_DIR / "modelos" / "vosk"
 
@@ -28,7 +33,7 @@ def _obtener_modelo_es() -> Path:
 
     try:
         urlretrieve(MODELO_ES_URL, zip_path, reporthook=_progreso)
-        print()  # salto de línea tras la barra de progreso
+        print() 
     except Exception as e:
         print(f"\n[ERROR] Fallo al descargar el modelo: {e}")
         if zip_path.exists():
@@ -50,6 +55,20 @@ def _obtener_modelo_es() -> Path:
     return ruta_modelo
 
 
-def transcribir_vosk(audio_path: Path, folder: Path) -> None:
+def transcribir_vosk(audio_path, folder) -> None:
     ruta_modelo = _obtener_modelo_es()
     print(f"[INFO] Transcribiendo '{audio_path}' con Vosk...")
+    audio = wave.open(str(audio_path), "rb")
+    sample_rate = audio.getframerate()
+    
+    segmentos = cargar_archivo(folder / "segmentos.json")
+
+    for inicio, fin in segmentos["segmentos"]:
+        inicio = int(inicio * sample_rate)
+        duracion = int((fin - inicio) * sample_rate)
+
+        audio.setpos(inicio)
+        segmento = audio.readframes(duracion)
+
+        # print el tamano en Kilo-bytes del segmento
+        print(f"[DEBUG] Procesando segmento {inicio:.2f}s - {fin:.2f}s ({len(segmento)/1024:.2f} KB)")
