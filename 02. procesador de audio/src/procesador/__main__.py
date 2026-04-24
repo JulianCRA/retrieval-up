@@ -114,7 +114,7 @@ def procesar_archivo(ruta, metodo=None, folder=None):
             "normalizacion_picos": tiempo_norm_picos,
             "vad": tiempo_vad if segmentos else 0
         }
-        guardar_datos_procesamiento(folder, metodo, segmentos, tiempos)
+        guardar_datos_procesamiento(folder, metodo, segmentos, tiempos, ruta_nueva)
 
 
 @cronometrar(etiqueta="Reduccion de ruido")
@@ -197,9 +197,10 @@ def generar_audio_de_prueba(audio, samplerate, segmentos, folder):
     ruta_procesada = folder / "segmentos_con_silencio.wav"
     sf.write(ruta_procesada, audio_procesado, samplerate)
 
-def guardar_datos_procesamiento(folder, metodo, segmentos, tiempos):
+def guardar_datos_procesamiento(folder, metodo, segmentos, tiempos, ruta_nueva):
     ruta_info = folder / "info.json"
     data = {
+        "archivo_procesado": str(ruta_nueva),
         "metodo_vad": metodo,
         "cantidad_segmentos": len(segmentos) if segmentos else 0,
         "archivo_segmentos": str(folder / "segmentos.json") if segmentos else None,
