@@ -26,12 +26,24 @@ def _obtener_modelo_es() -> Path:
             pct = min(count * block_size * 100 // total_size, 100)
             print(f"\r       {pct}% descargado...", end="", flush=True)
 
-    urlretrieve(MODELO_ES_URL, zip_path, reporthook=_progreso)
-    print()  # salto de línea tras la barra de progreso
+    try:
+        urlretrieve(MODELO_ES_URL, zip_path, reporthook=_progreso)
+        print()  # salto de línea tras la barra de progreso
+    except Exception as e:
+        print(f"\n[ERROR] Fallo al descargar el modelo: {e}")
+        if zip_path.exists():
+            zip_path.unlink()
+        raise
 
-    print(f"[INFO] Extrayendo modelo en '{MODELOS_DIR}'...")
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        zf.extractall(MODELOS_DIR)
+    try:
+        print(f"[INFO] Extrayendo modelo en '{MODELOS_DIR}'...")
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(MODELOS_DIR)
+    except Exception as e:
+        print(f"[ERROR] Fallo al extraer el modelo: {e}")
+        if zip_path.exists():
+            zip_path.unlink()
+        raise
 
     zip_path.unlink()
     print(f"[INFO] Modelo listo en '{ruta_modelo}'.")
@@ -39,5 +51,5 @@ def _obtener_modelo_es() -> Path:
 
 
 def transcribir_vosk(audio_path: Path, folder: Path) -> None:
-    _obtener_modelo_es()
+    ruta_modelo = _obtener_modelo_es()
     print(f"[INFO] Transcribiendo '{audio_path}' con Vosk...")
