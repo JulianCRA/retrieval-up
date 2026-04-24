@@ -42,7 +42,8 @@ def main():
     if args.info:
         print(INFO[f"INFO_{args.info.upper()}"])
         sys.exit(0)
-
+    elif args.modelo is None:
+        args.modelo = "vosk"
     procesar_hash(args.hash, args.modelo)
 
 def procesar_hash(hash, modelo="vosk"):
@@ -62,8 +63,8 @@ def procesar_hash(hash, modelo="vosk"):
         print(f"[ERROR] No se encontró el archivo de segmentos '{segmentos_path}'.")
         sys.exit(1)
 
-    cargar_modelo(audio_path, modelo=modelo, folder=folder)
+    obtener_transcripcion(audio_path, modelo=modelo, folder=folder)
 
 @cronometrar
-def cargar_modelo(audio_path, modelo="vosk", folder=None):
-    print(f"Cargando modelo '{modelo}' para el archivo '{folder / audio_path}'...")
+def obtener_transcripcion(audio_path, modelo="vosk", folder=None):
+    print(f"[INFO] Transcribiendo '{audio_path.name}' usando el modelo '{modelo}'...")
