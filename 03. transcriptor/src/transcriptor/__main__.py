@@ -53,7 +53,7 @@ def procesar_hash(hash, modelo="vosk"):
         print(f"[ERROR] No se encontró información para el hash '{hash}'.")
         sys.exit(1)
 
-    audio_path = folder / info["descarga"]["archivo_descargado"]
+    audio_path = folder / info["procesamiento"]["archivo_procesado"]
     if not audio_path.exists():
         print(f"[ERROR] No se encontró el archivo de audio '{audio_path}'.")
         sys.exit(1)
@@ -63,8 +63,11 @@ def procesar_hash(hash, modelo="vosk"):
         print(f"[ERROR] No se encontró el archivo de segmentos '{segmentos_path}'.")
         sys.exit(1)
 
-    obtener_transcripcion(audio_path, modelo=modelo, folder=folder)
+    transcripciones_path = folder / "transcripciones.json"
+
+    obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo=modelo)
 
 @cronometrar
-def obtener_transcripcion(audio_path, modelo="vosk", folder=None):
+def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo="vosk"):
     print(f"[INFO] Transcribiendo '{audio_path.name}' usando el modelo '{modelo}'...")
+    
