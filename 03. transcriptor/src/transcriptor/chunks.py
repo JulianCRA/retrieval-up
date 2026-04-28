@@ -1,3 +1,6 @@
+def redondear_segmentos(segmentos, ndigits=3):
+    return [(round(inicio, ndigits), round(fin, ndigits)) for inicio, fin in segmentos]
+
 def aplicar_padding(segmentos, padding):
     segmentos_con_padding = []
     for inicio, fin in segmentos:
@@ -46,3 +49,35 @@ def absorber_chunks_pequenos(segmentos, duracion_minima, duracion_maxima):
             ajustados.append((inicio, fin))
 
     return ajustados
+
+def limitar_duracion(segmentos, duracion_target, duracion_maxima, overlap):
+    finales = []
+
+    for inicio, fin in segmentos:
+        duracion = fin - inicio
+        if duracion <= duracion_maxima:
+            finales.append((inicio, fin))
+            continue
+
+        cursor = inicio
+        while cursor < fin:
+            corte = min(cursor + duracion_maxima, fin)
+            finales.append((cursor, corte))
+            if corte >= fin:
+                break
+            cursor = max(inicio, corte - overlap)
+
+    return finales
+
+def obtener_fragmentos_asr(segmentos, perfil):
+    if not segmentos:
+        return []
+    
+    spans = aplicar_padding(segmentos, perfil["padding"])
+    spans = fusion_por_gap(spans, perfil["join_gap"], perfil["duracion_target"], perfil["duracion_maxima"])
+    spans = absorber_chunks_pequenos(spans, perfil["duracion_minima"], perfil["duracion_maxima"])
+    spans = limitar_duracion(spans, perfil["duracion_target"], perfil["duracion_maxima"], perfil["overlap"])
+
+    print(f"[INFO] {len(spans)} fragmentos ASR luego de aplicar perfil")
+
+    return redondear_segmentos(spans)
