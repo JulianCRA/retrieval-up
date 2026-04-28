@@ -81,7 +81,7 @@ def _transcribir_segmento(modelo, audio_path, inicio, fin):
     # print(f"[DEBUG] Procesando segmento {inicio:.2f}s - {fin:.2f}s <{fin - inicio:.2f}s - {len(segmento)/1024:.2f} KB>")
     rec.AcceptWaveform(segmento)
     return inicio, fin, rec.FinalResult()
-
+from tqdm import tqdm
 def transcribir_vosk(paths, num_workers=8):
     modelo_path = _obtener_modelo_es()
     modelo = vosk.Model(str(modelo_path))
@@ -97,7 +97,8 @@ def transcribir_vosk(paths, num_workers=8):
         futures = {
             executor.submit(_transcribir_segmento, modelo, paths["audio"], seg[0], seg[1]): (seg[0], seg[1]) for seg in segmentos
         }
-        for future in as_completed(futures):
+        # for future in as_completed(futures):
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Transcribiendo", unit="segmento"):
             try:
                 inicio, fin, resultado = future.result()
                 transcripciones.append({
@@ -105,7 +106,8 @@ def transcribir_vosk(paths, num_workers=8):
                     "fin": fin,
                     "texto": json.loads(resultado).get("text", "")
                 })
-                print(f"[INFO] {inicio:.2f}s - {fin:.2f}s: '{transcripciones[-1]['texto']}'")
+                # print(f"[INFO] {inicio:.2f}s - {fin:.2f}s: '{transcripciones[-1]['texto']}'")
+
             except Exception as e:
                 print(f"[ERROR] Fallo al transcribir un segmento: {e}")
 
