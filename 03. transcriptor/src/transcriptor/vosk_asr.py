@@ -1,4 +1,5 @@
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.request import urlretrieve
 
@@ -6,6 +7,7 @@ from compartido.rutas import DESCARGAS_DIR
 from compartido.json_utils import cargar_archivo
 
 import wave
+import vosk
 
 MODELOS_DIR = DESCARGAS_DIR / "modelos" / "vosk"
 
@@ -53,20 +55,44 @@ def _obtener_modelo_es() -> Path:
     return ruta_modelo
 
 
-def transcribir_vosk(audio_path, paths) -> None:
-    ruta_modelo = _obtener_modelo_es()
-    print(f"[INFO] Transcribiendo '{audio_path}' con Vosk...")
+def _transcribir_segmento(modelo, audio_path, inicio, fin):
+    """Worker: abre su propio file handle y crea su propio KaldiRecognizer."""
     audio = wave.open(str(audio_path), "rb")
     sample_rate = audio.getframerate()
-    
-    segmentos = cargar_archivo(paths["segmentos"])
 
-    for inicio, fin in segmentos["segmentos"]:
-        frame_inicio = int(inicio * sample_rate)
-        num_frames = int((fin - inicio) * sample_rate)
+    rec = vosk.KaldiRecognizer(modelo, sample_rate)
 
-        audio.setpos(frame_inicio)
-        segmento = audio.readframes(num_frames)
+    frame_inicio = int(inicio * sample_rate)
+    num_frames = int((fin - inicio) * sample_rate)
+    audio.setpos(frame_inicio)
+    segmento = audio.readframes(num_frames)
+    audio.close()
 
-        # print el tamano en Kilo-bytes del segmento
-        print(f"[DEBUG] Procesando segmento {inicio:.2f}s - {fin:.2f}s <{fin - inicio:.2f}s - {len(segmento)/1024:.2f} KB>")
+    print(f"[DEBUG] Procesando segmento {inicio:.2f}s - {fin:.2f}s <{fin - inicio:.2f}s - {len(segmento)/1024:.2f} KB>")
+    rec.AcceptWaveform(segmento)
+    return inicio, fin, rec.Result()
+
+
+def transcribir_vosk(audio_path, paths, num_workers=6) -> None:
+    print(f"[INFO] Transcribiendo '{audio_path}' con Vosk...")
+
+    ruta_modelo = _obtener_modelo_es()
+    print("[INFO] Cargando modelo Vosk en español (una sola vez)...")
+    modelo = vosk.Model(str(ruta_modelo))
+    print(f"[INFO] Modelo listo. Procesando con {num_workers} workers en paralelo...")
+
+    segmentos = cargar_archivo(paths["segmentos"])["segmentos"]
+    resultados = {}
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futuros = {
+            executor.submit(_transcribir_segmento, modelo, audio_path, inicio, fin): (inicio, fin)
+            for inicio, fin in segmentos
+        }
+        for futuro in as_completed(futuros):
+            inicio, fin, resultado = futuro.result()
+            print(f"[DEBUG] Resultado Vosk {inicio:.2f}s - {fin:.2f}s: {resultado}")
+            resultados[(inicio, fin)] = resultado
+
+    for inicio, fin in segmentos:
+        print(f"[INFO] {inicio:.2f}s - {fin:.2f}s → {resultados[(inicio, fin)]}")
