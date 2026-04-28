@@ -5,6 +5,7 @@ from urllib.request import urlretrieve
 
 from compartido.rutas import DESCARGAS_DIR
 from compartido.json_utils import cargar_archivo
+from .chunks import obtener_fragmentos_asr
 
 import wave
 import vosk
@@ -91,6 +92,7 @@ def transcribir_vosk(audio_path, paths, num_workers=6) -> None:
     print(f"[INFO] Modelo listo. Procesando con {num_workers} workers en paralelo...")
 
     segmentos = cargar_archivo(paths["segmentos"])["segmentos"]
+    segmentos = obtener_fragmentos_asr(segmentos, PERFIL_VOSK)  
     resultados = {}
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
