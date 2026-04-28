@@ -31,3 +31,18 @@ def fusion_por_gap(segmentos, join_gap, duracion_target, duracion_maxima):
     fusionados.append((round(current_inicio, 3), round(current_fin, 3)))
     return fusionados
         
+def absorber_chunks_pequenos(segmentos, duracion_minima, duracion_maxima):
+    if not segmentos:
+        return []
+    
+    ajustados = []
+    for inicio, fin in segmentos:
+        ultimo_inicio, ultimo_fin = ajustados[-1] if ajustados else (None, None)
+        ultima_duracion = (ultimo_fin - ultimo_inicio) if ultimo_inicio is not None else None
+
+        if ultima_duracion < duracion_minima and (fin - ultimo_inicio) <= duracion_maxima:
+            ajustados[-1] = (ultimo_inicio, fin)
+        else:
+            ajustados.append((inicio, fin))
+
+    return ajustados
