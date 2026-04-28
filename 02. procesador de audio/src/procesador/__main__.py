@@ -90,7 +90,9 @@ def procesar_archivo(ruta, metodo=None, folder=None):
     tiempo_reduccion = reducir_ruido.elapsed
     audio= normalizar_picos(audio)
     tiempo_norm_picos = normalizar_picos.elapsed
+
     segmentos = None
+
     if metodo is not None:
         print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
         segmentos = vad(audio, samplerate, metodo=metodo)
@@ -169,24 +171,20 @@ def vad(audio, samplerate, metodo="energia"):
         print(f"[WARNING] Método VAD '{metodo}' no reconocido.")
         return None
 
-def procesar_segmentos(segmentos, margen=0.2):
-    # anadir margen a los segmentos para evitar cortar palabras al inicio o final
-    segmentos_procesados = []
-    for inicio, fin in segmentos:
-        inicio_procesado = max(0, inicio - margen)
-        fin_procesado = fin + margen
-        segmentos_procesados.append((round(inicio_procesado, 3), round(fin_procesado, 3)))
+def procesar_segmentos(segmentos, min_gap=0.5):
+    if not segmentos:
+        return []
 
-    # fusionar segmentos que se solapan
-    segmentos_fusionados = []
-    for inicio, fin in sorted(segmentos_procesados):
-        if not segmentos_fusionados or inicio > segmentos_fusionados[-1][1]:
-            segmentos_fusionados.append((inicio, fin))
+    fusionados = [list(segmentos[0])]
+    for inicio, fin in segmentos[1:]:
+        if (inicio - fusionados[-1][1]) <= min_gap:
+            fusionados[-1][1] = fin
         else:
-            segmentos_fusionados[-1] = (segmentos_fusionados[-1][0], max(segmentos_fusionados[-1][1], fin))
+            fusionados.append([inicio, fin])
 
-    print(f"[INFO] {len(segmentos_fusionados)} segmentos luego de aplicar margenes")
-    return segmentos_fusionados
+    resultado = [(round(i, 3), round(f, 3)) for i, f in fusionados]
+    print(f"[INFO] {len(resultado)} segmentos luego de fusionar")
+    return resultado
 
 def generar_audio_de_prueba(audio, samplerate, segmentos, folder):
     audio_procesado = np.zeros_like(audio)
