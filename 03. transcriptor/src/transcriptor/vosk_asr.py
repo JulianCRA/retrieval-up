@@ -14,6 +14,15 @@ MODELOS_DIR = DESCARGAS_DIR / "modelos" / "vosk"
 MODELO_ES = "vosk-model-es-0.42" # opcion: vosk-model-small-es-0.42 (más ligero pero menos preciso)
 MODELO_ES_URL = f"https://alphacephei.com/vosk/models/{MODELO_ES}.zip"
 
+PERFIL_VOSK = {
+    "padding": 0.18,
+    "join_gap": 0.50,
+    "duracion_minima": 1.20,
+    "duracion_target": 6.00,
+    "duracion_maxima": 10.00,
+    "overlap": 0.15,
+}
+
 
 def _obtener_modelo_es() -> Path:
     """Devuelve la ruta al modelo en español, descargándolo si no existe."""
