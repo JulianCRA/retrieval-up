@@ -1,10 +1,11 @@
+import json
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.request import urlretrieve
 
 from compartido.rutas import DESCARGAS_DIR
-from compartido.json_utils import cargar_archivo
+from compartido.json_utils import cargar_archivo, guardar_archivo
 from .chunks import obtener_fragmentos_asr
 
 import wave
@@ -77,36 +78,37 @@ def _transcribir_segmento(modelo, audio_path, inicio, fin):
         audio.setpos(frame_inicio)
         segmento = audio.readframes(num_frames)
 
-    print(f"[DEBUG] Procesando segmento {inicio:.2f}s - {fin:.2f}s <{fin - inicio:.2f}s - {len(segmento)/1024:.2f} KB>")
+    # print(f"[DEBUG] Procesando segmento {inicio:.2f}s - {fin:.2f}s <{fin - inicio:.2f}s - {len(segmento)/1024:.2f} KB>")
     rec.AcceptWaveform(segmento)
     return inicio, fin, rec.FinalResult()
 
+def transcribir_vosk(paths, num_workers=8):
+    modelo_path = _obtener_modelo_es()
+    modelo = vosk.Model(str(modelo_path))
 
-def transcribir_vosk(audio_path, paths, num_workers=6) -> None:
-    print(f"[INFO] Transcribiendo '{audio_path}' con Vosk...")
-
-    segmentos = cargar_archivo(paths["segmentos"]).get("segmentos", [])
-    segmentos = obtener_fragmentos_asr(segmentos, PERFIL_VOSK)
-    if not segmentos:
-        print("[INFO] No hay fragmentos ASR para transcribir.")
+    segmentos = cargar_archivo(paths["segmentos"])
+    if segmentos is None:
+        print(f"[ERROR] No se pudo cargar los segmentos desde '{paths['segmentos']}'.")
         return
+    segmentos = obtener_fragmentos_asr(segmentos["segmentos"], PERFIL_VOSK)
 
-    ruta_modelo = _obtener_modelo_es()
-    print("[INFO] Cargando modelo Vosk en español (una sola vez)...")
-    modelo = vosk.Model(str(ruta_modelo))
-    print(f"[INFO] Modelo listo. Procesando con {num_workers} workers en paralelo...")
-
-    resultados = {}
-
+    transcripciones = []
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futuros = {
-            executor.submit(_transcribir_segmento, modelo, audio_path, inicio, fin): (inicio, fin)
-            for inicio, fin in segmentos
+        futures = {
+            executor.submit(_transcribir_segmento, modelo, paths["audio"], seg[0], seg[1]): (seg[0], seg[1]) for seg in segmentos
         }
-        for futuro in as_completed(futuros):
-            inicio, fin, resultado = futuro.result()
-            print(f"[DEBUG] Resultado Vosk {inicio:.2f}s - {fin:.2f}s: {resultado}")
-            resultados[(inicio, fin)] = resultado
+        for future in as_completed(futures):
+            try:
+                inicio, fin, resultado = future.result()
+                transcripciones.append({
+                    "inicio": inicio,
+                    "fin": fin,
+                    "texto": json.loads(resultado).get("text", "")
+                })
+                print(f"[INFO] {inicio:.2f}s - {fin:.2f}s: '{transcripciones[-1]['texto']}'")
+            except Exception as e:
+                print(f"[ERROR] Fallo al transcribir un segmento: {e}")
 
-    for inicio, fin in segmentos:
-        print(f"[INFO] {inicio:.2f}s - {fin:.2f}s → {resultados[(inicio, fin)]}")
+    transcripciones.sort(key=lambda x: x["inicio"])
+    full_text = " ".join([t["texto"] for t in transcripciones])
+    guardar_archivo(paths["transcripciones"], {"texto": full_text, "transcripciones": transcripciones})

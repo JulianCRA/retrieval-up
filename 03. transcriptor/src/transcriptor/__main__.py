@@ -77,4 +77,4 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
     }
     if modelo == "vosk":
         from .vosk_asr import transcribir_vosk
-        transcribir_vosk(audio_path, paths)
+        transcribir_vosk(paths)
