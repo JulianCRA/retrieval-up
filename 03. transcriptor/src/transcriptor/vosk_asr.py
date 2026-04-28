@@ -19,9 +19,9 @@ MODELO_ES_URL = f"https://alphacephei.com/vosk/models/{MODELO_ES}.zip"
 PERFIL_VOSK = {
     "padding": 0.18,
     "join_gap": 0.50,
-    "duracion_minima": 1.20,
-    "duracion_target": 6.00,
-    "duracion_maxima": 10.00,
+    "duracion_minima": 20.20,
+    "duracion_target": 30.00,
+    "duracion_maxima": 34.00,
     "overlap": 0.15,
 }
 
@@ -104,6 +104,7 @@ def transcribir_vosk(paths, num_workers=8):
                 transcripciones.append({
                     "inicio": inicio,
                     "fin": fin,
+                    "duracion": fin - inicio,
                     "texto": json.loads(resultado).get("text", "")
                 })
                 # print(f"[INFO] {inicio:.2f}s - {fin:.2f}s: '{transcripciones[-1]['texto']}'")
@@ -113,4 +114,13 @@ def transcribir_vosk(paths, num_workers=8):
 
     transcripciones.sort(key=lambda x: x["inicio"])
     full_text = " ".join([t["texto"] for t in transcripciones])
-    guardar_archivo(paths["transcripciones"], {"texto": full_text, "transcripciones": transcripciones})
+
+    data = {
+        "texto": full_text,
+        "num_segmentos": len(transcripciones),
+        "duracion_promedio_segmento": round(sum(t["duracion"] for t in transcripciones) / len(transcripciones), 2) if transcripciones else 0,
+        "modelo": "Vosk SPA (full)",
+        "perfil": PERFIL_VOSK,
+        "transcripciones": transcripciones
+    }
+    guardar_archivo(paths["transcripciones"], data)

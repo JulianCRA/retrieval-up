@@ -34,7 +34,7 @@ def fusion_por_gap(segmentos, join_gap, duracion_target, duracion_maxima):
     fusionados.append((round(current_inicio, 3), round(current_fin, 3)))
     return fusionados
         
-def absorber_chunks_pequenos(segmentos, duracion_minima, duracion_maxima):
+def absorber_chunks_pequenos(segmentos, duracion_minima, duracion_target, duracion_maxima):
     if not segmentos:
         return []
     
@@ -48,7 +48,7 @@ def absorber_chunks_pequenos(segmentos, duracion_minima, duracion_maxima):
         ultima_duracion = ultimo_fin - ultimo_inicio
         fin_ajustado = max(ultimo_fin, fin)
 
-        if ultima_duracion < duracion_minima and (fin_ajustado - ultimo_inicio) <= duracion_maxima:
+        if ultima_duracion < duracion_minima and (fin_ajustado - ultimo_inicio) <= duracion_target:
             ajustados[-1] = (ultimo_inicio, fin_ajustado)
         else:
             ajustados.append((inicio, fin))
@@ -66,7 +66,7 @@ def limitar_duracion(segmentos, duracion_target, duracion_maxima, overlap):
 
         cursor = inicio
         while cursor < fin:
-            corte = min(cursor + duracion_maxima, fin)
+            corte = min(cursor + duracion_target, fin)
             finales.append((cursor, corte))
             if corte >= fin:
                 break
@@ -82,7 +82,7 @@ def obtener_fragmentos_asr(segmentos, perfil):
     
     spans = aplicar_padding(segmentos, perfil["padding"])
     spans = fusion_por_gap(spans, perfil["join_gap"], perfil["duracion_target"], perfil["duracion_maxima"])
-    spans = absorber_chunks_pequenos(spans, perfil["duracion_minima"], perfil["duracion_maxima"])
+    spans = absorber_chunks_pequenos(spans, perfil["duracion_minima"], perfil["duracion_target"], perfil["duracion_maxima"])
     spans = limitar_duracion(spans, perfil["duracion_target"], perfil["duracion_maxima"], perfil["overlap"])
 
     print(f"[INFO] {len(spans)} fragmentos ASR luego de aplicar perfil")
