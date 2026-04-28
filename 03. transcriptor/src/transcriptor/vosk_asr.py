@@ -67,32 +67,35 @@ def _obtener_modelo_es() -> Path:
 
 def _transcribir_segmento(modelo, audio_path, inicio, fin):
     """Worker: abre su propio file handle y crea su propio KaldiRecognizer."""
-    audio = wave.open(str(audio_path), "rb")
-    sample_rate = audio.getframerate()
+    with wave.open(str(audio_path), "rb") as audio:
+        sample_rate = audio.getframerate()
 
-    rec = vosk.KaldiRecognizer(modelo, sample_rate)
+        rec = vosk.KaldiRecognizer(modelo, sample_rate)
 
-    frame_inicio = int(inicio * sample_rate)
-    num_frames = int((fin - inicio) * sample_rate)
-    audio.setpos(frame_inicio)
-    segmento = audio.readframes(num_frames)
-    audio.close()
+        frame_inicio = int(inicio * sample_rate)
+        num_frames = int((fin - inicio) * sample_rate)
+        audio.setpos(frame_inicio)
+        segmento = audio.readframes(num_frames)
 
     print(f"[DEBUG] Procesando segmento {inicio:.2f}s - {fin:.2f}s <{fin - inicio:.2f}s - {len(segmento)/1024:.2f} KB>")
     rec.AcceptWaveform(segmento)
-    return inicio, fin, rec.Result()
+    return inicio, fin, rec.FinalResult()
 
 
 def transcribir_vosk(audio_path, paths, num_workers=6) -> None:
     print(f"[INFO] Transcribiendo '{audio_path}' con Vosk...")
+
+    segmentos = cargar_archivo(paths["segmentos"]).get("segmentos", [])
+    segmentos = obtener_fragmentos_asr(segmentos, PERFIL_VOSK)
+    if not segmentos:
+        print("[INFO] No hay fragmentos ASR para transcribir.")
+        return
 
     ruta_modelo = _obtener_modelo_es()
     print("[INFO] Cargando modelo Vosk en español (una sola vez)...")
     modelo = vosk.Model(str(ruta_modelo))
     print(f"[INFO] Modelo listo. Procesando con {num_workers} workers en paralelo...")
 
-    segmentos = cargar_archivo(paths["segmentos"])["segmentos"]
-    segmentos = obtener_fragmentos_asr(segmentos, PERFIL_VOSK)  
     resultados = {}
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:

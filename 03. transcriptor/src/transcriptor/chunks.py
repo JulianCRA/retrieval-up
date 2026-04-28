@@ -21,11 +21,11 @@ def fusion_por_gap(segmentos, join_gap, duracion_target, duracion_maxima):
         duracion_fusionada = fin - current_inicio
 
         if gap <= join_gap and duracion_fusionada <= duracion_target:
-            current_fin = fin
+            current_fin = max(current_fin, fin)
             continue
 
         if gap <= 0.15 and duracion_fusionada <= duracion_maxima:
-            current_fin = fin
+            current_fin = max(current_fin, fin)
             continue
 
         fusionados.append((round(current_inicio, 3), round(current_fin, 3)))
@@ -40,11 +40,16 @@ def absorber_chunks_pequenos(segmentos, duracion_minima, duracion_maxima):
     
     ajustados = []
     for inicio, fin in segmentos:
-        ultimo_inicio, ultimo_fin = ajustados[-1] if ajustados else (None, None)
-        ultima_duracion = (ultimo_fin - ultimo_inicio) if ultimo_inicio is not None else None
+        if not ajustados:
+            ajustados.append((inicio, fin))
+            continue
 
-        if ultima_duracion < duracion_minima and (fin - ultimo_inicio) <= duracion_maxima:
-            ajustados[-1] = (ultimo_inicio, fin)
+        ultimo_inicio, ultimo_fin = ajustados[-1]
+        ultima_duracion = ultimo_fin - ultimo_inicio
+        fin_ajustado = max(ultimo_fin, fin)
+
+        if ultima_duracion < duracion_minima and (fin_ajustado - ultimo_inicio) <= duracion_maxima:
+            ajustados[-1] = (ultimo_inicio, fin_ajustado)
         else:
             ajustados.append((inicio, fin))
 
@@ -72,6 +77,8 @@ def limitar_duracion(segmentos, duracion_target, duracion_maxima, overlap):
 def obtener_fragmentos_asr(segmentos, perfil):
     if not segmentos:
         return []
+
+    segmentos = sorted(segmentos, key=lambda segmento: (segmento[0], segmento[1]))
     
     spans = aplicar_padding(segmentos, perfil["padding"])
     spans = fusion_por_gap(spans, perfil["join_gap"], perfil["duracion_target"], perfil["duracion_maxima"])

@@ -175,10 +175,11 @@ def procesar_segmentos(segmentos, min_gap=0.5):
     if not segmentos:
         return []
 
+    segmentos = sorted(segmentos, key=lambda segmento: (segmento[0], segmento[1]))
     fusionados = [list(segmentos[0])]
     for inicio, fin in segmentos[1:]:
         if (inicio - fusionados[-1][1]) <= min_gap:
-            fusionados[-1][1] = fin
+            fusionados[-1][1] = max(fusionados[-1][1], fin)
         else:
             fusionados.append([inicio, fin])
 
