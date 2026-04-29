@@ -123,16 +123,16 @@ def transcribir_vosk(paths):
     full_text = " ".join([t["texto"] for t in transcripciones])
 
     data = {
-        "texto": full_text,
-        "num_segmentos": len(transcripciones),
-        "duracion_promedio_segmento": round(sum(t["duracion"] for t in transcripciones) / len(transcripciones), 2) if transcripciones else 0,
         "modelo": "Vosk SPA (full)",
         "perfil": PERFIL_VOSK,
-        "tiempo_transcripcion": None,
-        "rt_factor": None,
-        "speed_up": None,
         "num_workers": num_workers,
-        "transcripciones": transcripciones
+        "tiempo_transcripcion": None,
+        "speed_up": None,
+        "rt_factor": None,
+        "num_segmentos": len(transcripciones),
+        "duracion_promedio_segmento": round(sum(t["duracion"] for t in transcripciones) / len(transcripciones), 2) if transcripciones else 0,
+        "transcripciones": transcripciones,
+        "texto": full_text
     }
     guardar_archivo(paths["transcripciones"], data)
 
