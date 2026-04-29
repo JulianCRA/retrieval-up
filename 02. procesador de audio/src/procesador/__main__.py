@@ -34,8 +34,7 @@ Métodos de detección de voz (VAD):
     variaciones de volumen, sin necesidad de ajuste manual. Requiere la dependencia
     'silero-vad' (torch) y es considerablemente más lento que los otros métodos.
     Recursos: mínimo 2 núcleos de CPU y ~500 MB de RAM. Recomendado 4 núcleos y
-    2 GB de RAM. Una GPU compatible con CUDA acelera significativamente el proceso,
-    aunque no es imprescindible.
+    2 GB de RAM. En esta implementación el uso de múltiples núcleos es mucho mas eficiente que el uso de GPU, por lo que se recomienda usar CPU incluso si se dispone de GPU.
 
   webrtc:
     Implementa el VAD incluido en el proyecto WebRTC, diseñado para comunicaciones
@@ -122,19 +121,28 @@ def procesar_archivo(ruta, metodo=None, folder=None):
 @cronometrar(etiqueta="Reduccion de ruido")
 def reducir_ruido(audio, samplerate):
     print(f"[INFO] Aplicando reducción de ruido...")
+    from compartido.utils import crear_perfil_hardware
+    perfil = crear_perfil_hardware(forzado={"device": "cpu"})
+
     n = samplerate  # 1 segundo por muestra
     total = len(audio)
     # tomar muestras de ruido cada 5% del audio para obtener una representación representativa del ruido de fondo
     puntos = [int(total * p) for p in np.arange(0.05, 1.0, 0.05)]  # 5%, 10%, ..., 95%
     muestras = [audio[p:p + n] for p in puntos if p + n <= total]
     muestra_ruido = np.concatenate(muestras)
+    
+    print(f"[INFO] Usando PyTorch ({perfil['device']}) para reducción de ruido.")
     audio = nr.reduce_noise(
         y=audio,
         y_noise=muestra_ruido,
         sr=samplerate,
         stationary=True,
-        prop_decrease=0.8
+        prop_decrease=0.8,
+        n_jobs=1,  # Disabled to avoid joblib OS permission errors
+        use_torch=True,
+        device=perfil["device"]
     )
+        
     return audio
 
 @cronometrar(etiqueta="Normalización de picos")

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
-from compartido.utils import cronometrar, obtener_dispositivo
+from compartido.utils import cronometrar, crear_perfil_hardware
 
 from .texto import INFO
 
@@ -67,7 +67,6 @@ def procesar_hash(hash, modelo="vosk"):
 
     obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo=modelo)
 
-@cronometrar
 def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo="vosk"):
     print(f"[INFO] Transcribiendo '{audio_path.name}' usando el modelo '{modelo}'...")
     paths = {
@@ -79,6 +78,12 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
     if modelo == "vosk":
         from .vosk_asr import transcribir_vosk
         transcribir_vosk(paths)
-    elif modelo == "whisper":
-        from .whisper_asr import transcribir_whisper
-        transcribir_whisper(paths, device=obtener_dispositivo())
+        tiempo_transcripcion = round(transcribir_vosk.elapsed, 2)
+        duracion = audio_path.stat().st_size / (16000 * 2)  
+        rt_factor = round(tiempo_transcripcion / duracion, 2) if duracion > 0 else None
+        speed_up = round(1 / rt_factor, 2) if rt_factor > 0 else None
+        ju.guardar_nodos(paths["transcripciones"], {
+            "tiempo_transcripcion": tiempo_transcripcion,
+            "rt_factor": rt_factor,
+            "speed_up": str(speed_up) + "x" if speed_up is not None else None
+        })
