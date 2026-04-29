@@ -39,9 +39,9 @@ def detectar_apple_silicon():
         return True, vram_estimada_gb
     return False, 0
 
-def obtener_perfil_hardware():
+def crear_perfil_hardware(forzado=None):
+    
     # NVIDIA (Windows/Linux)
-    inicio = time.perf_counter()
     has_nvidia, vram_gb = detectar_gpu_nvidia()
     if has_nvidia:
         device = "cuda"
@@ -75,8 +75,31 @@ def obtener_perfil_hardware():
         "cpu_physical_cores": psutil.cpu_count(logical=False),
         "cpu_logical_cores": psutil.cpu_count(logical=True),
     }
-    duracion = time.perf_counter() - inicio
-    print(f"[INFO] Perfil de hardware obtenido en {duracion:.2f}s: {perfil}")
+
+    if forzado is not None:
+        if isinstance(forzado, dict):
+            for key, value in forzado.items():
+                if key in perfil:
+                    # Si es numérico (vram_gb, ram_gb, cores), no dejar que exceda el límite real
+                    if isinstance(perfil[key], (int, float)) and isinstance(value, (int, float)) and value > perfil[key]:
+                        perfil[key] = min(perfil[key], value)
+                        print(f"[ADVERTENCIA] Forzado '{key}' a {value}, pero se detectó un máximo de {perfil[key]}. Usando {perfil[key]}.")
+
+                    # Si forzan un dispositivo acelerado pero el perfil real es CPU, ignorar
+                    elif key == "device":
+                        if value in ["cuda", "mps", "xpu"] and perfil["device"] == "cpu":
+                            print(f"[ADVERTENCIA] Imposible forzar '{value}'. No se detectó acelerador. Mantenido en 'cpu'.")
+                        else:
+                            perfil[key] = value
+
+                    # Si hay alguna otra clave en el futuro
+                    else:
+                        perfil[key] = value
+                else:
+                    raise SystemExit(f"[ERROR] Clave de perfil desconocida para forzar: '{key}'")
+    if perfil["device"] == "cpu":
+        perfil["vram_gb"] = 0
+
     return perfil
 
 def cronometrar(func=None, *, etiqueta=None):
