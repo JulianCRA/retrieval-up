@@ -77,29 +77,37 @@ def crear_perfil_hardware(forzado=None):
     }
 
     if forzado is not None:
-        if isinstance(forzado, dict):
-            for key, value in forzado.items():
-                if key in perfil:
-                    # Si es numérico (vram_gb, ram_gb, cores), no dejar que exceda el límite real
-                    if isinstance(perfil[key], (int, float)) and isinstance(value, (int, float)) and value > perfil[key]:
-                        perfil[key] = min(perfil[key], value)
-                        print(f"[ADVERTENCIA] Forzado '{key}' a {value}, pero se detectó un máximo de {perfil[key]}. Usando {perfil[key]}.")
+        perfil = forzar_perfil(perfil, forzado)
 
-                    # Si forzan un dispositivo acelerado pero el perfil real es CPU, ignorar
-                    elif key == "device":
-                        if value in ["cuda", "mps", "xpu"] and perfil["device"] == "cpu":
-                            print(f"[ADVERTENCIA] Imposible forzar '{value}'. No se detectó acelerador. Mantenido en 'cpu'.")
-                        else:
-                            perfil[key] = value
+    return perfil
 
-                    # Si hay alguna otra clave en el futuro
+def forzar_perfil(perfil, forzado):
+        
+    if isinstance(forzado, dict):
+        for key, value in forzado.items():
+            if key in perfil:
+                # Si es numérico (vram_gb, ram_gb, cores), no dejar que exceda el límite real
+                if isinstance(perfil[key], (int, float)) and isinstance(value, (int, float)) and value > perfil[key]:
+                    perfil[key] = min(perfil[key], value)
+                    print(f"[ADVERTENCIA] Forzado '{key}' a {value}, pero se detectó un máximo de {perfil[key]}. Usando {perfil[key]}.")
+
+                # Si forzan un dispositivo acelerado pero el perfil real es CPU, ignorar
+                elif key == "device":
+                    if value in ["cuda", "mps", "xpu"] and perfil["device"] == "cpu":
+                        print(f"[ADVERTENCIA] Imposible forzar '{value}'. No se detectó acelerador. Mantenido en 'cpu'.")
                     else:
                         perfil[key] = value
-                else:
-                    raise SystemExit(f"[ERROR] Clave de perfil desconocida para forzar: '{key}'")
-    if perfil["device"] == "cpu":
-        perfil["vram_gb"] = 0
 
+                # Si hay alguna otra clave en el futuro
+                else:
+                    perfil[key] = value
+            else:
+                raise SystemExit(f"[ERROR] Clave de perfil desconocida para forzar: '{key}'")        
+        if perfil["device"] == "cpu":
+            perfil["vram_gb"] = 0
+    else:
+        raise SystemExit(f"[ERROR] El perfil forzado debe ser un diccionario con claves como 'device', 'vram_gb', 'ram_gb', etc.")
+    
     return perfil
 
 def cronometrar(func=None, *, etiqueta=None):
