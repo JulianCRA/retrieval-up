@@ -81,4 +81,4 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
         transcribir_vosk(paths)
     elif modelo == "whisper":
         from .whisper_asr import transcribir_whisper
-        transcribir_whisper(paths, device="cpu")
+        transcribir_whisper(paths, device=obtener_dispositivo())
