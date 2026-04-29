@@ -122,19 +122,28 @@ def procesar_archivo(ruta, metodo=None, folder=None):
 @cronometrar(etiqueta="Reduccion de ruido")
 def reducir_ruido(audio, samplerate):
     print(f"[INFO] Aplicando reducción de ruido...")
+    from compartido.utils import crear_perfil_hardware
+    perfil = crear_perfil_hardware(forzado={"device": "cpu"})
+
     n = samplerate  # 1 segundo por muestra
     total = len(audio)
     # tomar muestras de ruido cada 5% del audio para obtener una representación representativa del ruido de fondo
     puntos = [int(total * p) for p in np.arange(0.05, 1.0, 0.05)]  # 5%, 10%, ..., 95%
     muestras = [audio[p:p + n] for p in puntos if p + n <= total]
     muestra_ruido = np.concatenate(muestras)
+    
+    print(f"[INFO] Usando PyTorch ({perfil['device']}) para reducción de ruido.")
     audio = nr.reduce_noise(
         y=audio,
         y_noise=muestra_ruido,
         sr=samplerate,
         stationary=True,
-        prop_decrease=0.8
+        prop_decrease=0.8,
+        n_jobs=1,  # Disabled to avoid joblib OS permission errors
+        use_torch=True,
+        device=perfil["device"]
     )
+        
     return audio
 
 @cronometrar(etiqueta="Normalización de picos")
