@@ -4,7 +4,7 @@ from pathlib import Path
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
-from compartido.utils import cronometrar
+from compartido.utils import cronometrar, obtener_dispositivo
 
 from .texto import INFO
 
@@ -75,6 +75,10 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
         "segmentos": segmentos_path,
         "transcripciones": transcripciones_path
     }
+    device = obtener_dispositivo()
     if modelo == "vosk":
         from .vosk_asr import transcribir_vosk
         transcribir_vosk(paths)
+    elif modelo == "whisper":
+        from .whisper_asr import transcribir_whisper
+        transcribir_whisper(paths, device="cpu")

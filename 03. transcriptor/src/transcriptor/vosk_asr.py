@@ -104,7 +104,7 @@ def transcribir_vosk(paths, num_workers=8):
                 transcripciones.append({
                     "inicio": inicio,
                     "fin": fin,
-                    "duracion": fin - inicio,
+                    "duracion": round(fin - inicio, 2),
                     "texto": json.loads(resultado).get("text", "")
                 })
                 # print(f"[INFO] {inicio:.2f}s - {fin:.2f}s: '{transcripciones[-1]['texto']}'")
