@@ -34,8 +34,7 @@ Métodos de detección de voz (VAD):
     variaciones de volumen, sin necesidad de ajuste manual. Requiere la dependencia
     'silero-vad' (torch) y es considerablemente más lento que los otros métodos.
     Recursos: mínimo 2 núcleos de CPU y ~500 MB de RAM. Recomendado 4 núcleos y
-    2 GB de RAM. Una GPU compatible con CUDA acelera significativamente el proceso,
-    aunque no es imprescindible.
+    2 GB de RAM. En esta implementación el uso de múltiples núcleos es mucho mas eficiente que el uso de GPU, por lo que se recomienda usar CPU incluso si se dispone de GPU.
 
   webrtc:
     Implementa el VAD incluido en el proyecto WebRTC, diseñado para comunicaciones

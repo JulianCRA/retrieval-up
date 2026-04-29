@@ -34,14 +34,21 @@ def _procesar_chunk(args):
     return [{"start": t["start"] + offset, "end": t["end"] + offset} for t in timestamps]
 
 
-def vad_silero(audio, samplerate, umbral=0.4, duracion_minima=0.25, duracion_silencio_minima=0.3):
+def vad_silero(audio, samplerate, umbral=0.4, duracion_minima=0.25, duracion_silencio_minima=0.3, n_workers=None):
     from concurrent.futures import ProcessPoolExecutor
 
     if samplerate != 16000:
         raise ValueError(f"VAD Silero requiere audio a 16 kHz, se obtuvo {samplerate} Hz.")
 
     audio_mono = (audio[:, 0] if audio.ndim > 1 else audio).astype(np.float32)
-    n_workers = psutil.cpu_count(logical=False) or 1
+    
+    real_cpu_count = psutil.cpu_count(logical=False)
+    if n_workers is None:
+        n_workers = real_cpu_count
+    elif n_workers > real_cpu_count:
+        print(f"[WARNING] Se solicitaron {n_workers} workers, pero solo se detectaron {real_cpu_count} CPUs físicas. Usando {real_cpu_count} workers.")
+        n_workers = real_cpu_count
+    
     total = len(audio_mono)
     chunk_size = total // n_workers
     overlap = samplerate  # 1s overlap at boundaries
