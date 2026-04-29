@@ -6,10 +6,12 @@ from urllib.request import urlretrieve
 
 from compartido.rutas import DESCARGAS_DIR
 from compartido.json_utils import cargar_archivo, guardar_archivo
+from compartido.utils import crear_perfil_hardware, cronometrar
 from .chunks import obtener_fragmentos_asr
 
 import wave
 import vosk
+from tqdm import tqdm
 
 MODELOS_DIR = DESCARGAS_DIR / "modelos" / "vosk"
 
@@ -19,9 +21,9 @@ MODELO_ES_URL = f"https://alphacephei.com/vosk/models/{MODELO_ES}.zip"
 PERFIL_VOSK = {
     "padding": 0.18,
     "join_gap": 0.50,
-    "duracion_minima": 20.20,
-    "duracion_target": 30.00,
-    "duracion_maxima": 34.00,
+    "duracion_minima": 5.00,
+    "duracion_target": 20.00,
+    "duracion_maxima": 24.00,
     "overlap": 0.15,
 }
 
@@ -66,24 +68,19 @@ def _obtener_modelo_es() -> Path:
     return ruta_modelo
 
 
-def _transcribir_segmento(modelo, audio_path, inicio, fin):
-    """Worker: abre su propio file handle y crea su propio KaldiRecognizer."""
-    with wave.open(str(audio_path), "rb") as audio:
-        sample_rate = audio.getframerate()
+def _transcribir_segmento(modelo, audio_bytes, sample_rate, bytes_per_frame, inicio, fin):
+    byte_start = int(inicio * sample_rate) * bytes_per_frame
+    byte_end   = int(fin   * sample_rate) * bytes_per_frame
+    chunk = audio_bytes[byte_start:byte_end]
 
-        rec = vosk.KaldiRecognizer(modelo, sample_rate)
-
-        frame_inicio = int(inicio * sample_rate)
-        num_frames = int((fin - inicio) * sample_rate)
-        audio.setpos(frame_inicio)
-        segmento = audio.readframes(num_frames)
-
-    # print(f"[DEBUG] Procesando segmento {inicio:.2f}s - {fin:.2f}s <{fin - inicio:.2f}s - {len(segmento)/1024:.2f} KB>")
-    rec.AcceptWaveform(segmento)
+    rec = vosk.KaldiRecognizer(modelo, sample_rate)
+    rec.AcceptWaveform(chunk)
     return inicio, fin, rec.FinalResult()
-from tqdm import tqdm
-def transcribir_vosk(paths, num_workers=8):
+
+@cronometrar(etiqueta="Transcripción total")
+def transcribir_vosk(paths):
     modelo_path = _obtener_modelo_es()
+    vosk.SetLogLevel(-1)
     modelo = vosk.Model(str(modelo_path))
 
     segmentos = cargar_archivo(paths["segmentos"])
@@ -93,9 +90,19 @@ def transcribir_vosk(paths, num_workers=8):
     segmentos = obtener_fragmentos_asr(segmentos["segmentos"], PERFIL_VOSK)
 
     transcripciones = []
+    num_workers = crear_perfil_hardware()["cpu_physical_cores"]
+    # num_workers = 4
+
+    with wave.open(str(paths["audio"]), "rb") as wf:
+        sample_rate = wf.getframerate()
+        bytes_per_frame = wf.getnchannels() * wf.getsampwidth()
+        audio_bytes = wf.readframes(wf.getnframes())
+
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        print(f"[INFO] Transcribiendo {len(segmentos)} segmentos con {num_workers} workers...")
         futures = {
-            executor.submit(_transcribir_segmento, modelo, paths["audio"], seg[0], seg[1]): (seg[0], seg[1]) for seg in segmentos
+            executor.submit(_transcribir_segmento, modelo, audio_bytes, sample_rate, bytes_per_frame, seg[0], seg[1]): (seg[0], seg[1])
+            for seg in segmentos
         }
         # for future in as_completed(futures):
         for future in tqdm(as_completed(futures), total=len(futures), desc="Transcribiendo", unit="segmento"):
@@ -104,7 +111,7 @@ def transcribir_vosk(paths, num_workers=8):
                 transcripciones.append({
                     "inicio": inicio,
                     "fin": fin,
-                    "duracion": fin - inicio,
+                    "duracion": round(fin - inicio, 2),
                     "texto": json.loads(resultado).get("text", "")
                 })
                 # print(f"[INFO] {inicio:.2f}s - {fin:.2f}s: '{transcripciones[-1]['texto']}'")
@@ -121,6 +128,12 @@ def transcribir_vosk(paths, num_workers=8):
         "duracion_promedio_segmento": round(sum(t["duracion"] for t in transcripciones) / len(transcripciones), 2) if transcripciones else 0,
         "modelo": "Vosk SPA (full)",
         "perfil": PERFIL_VOSK,
+        "tiempo_transcripcion": None,
+        "rt_factor": None,
+        "speed_up": None,
+        "num_workers": num_workers,
         "transcripciones": transcripciones
     }
     guardar_archivo(paths["transcripciones"], data)
+
+    
