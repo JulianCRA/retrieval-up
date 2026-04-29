@@ -10,12 +10,12 @@ from .chunks import obtener_fragmentos_asr
 MODELOS_DIR = DESCARGAS_DIR / "modelos" / "whisper"
 
 MODELO_DEFAULT = "large-v3-turbo"  # opciones: tiny, base, small, large-v3-turbo
-# MODELO_DEFAULT = "base"
+MODELO_DEFAULT = "small"
 
 PERFIL_WHISPER = {
     "padding": 0.18,
     "join_gap": 0.50,
-    "duracion_minima": 10.00,
+    "duracion_minima": 20.00,
     "duracion_target": 28.00,
     "duracion_maxima": 30.00,
     "overlap": 0.15,
@@ -67,7 +67,7 @@ def _resolver_configuracion_whisper(perfil_hardware, batch_size=BATCH_SIZE):
 
 
 def _cargar_modelo(nombre=MODELO_DEFAULT, configuracion=None):
-    configuracion = configuracion or _resolver_configuracion_whisper(crear_perfil_hardware())
+    configuracion = configuracion or _resolver_configuracion_whisper(crear_perfil_hardware(), batch_size=BATCH_SIZE)
     MODELOS_DIR.mkdir(parents=True, exist_ok=True)
     print(
         f"[INFO] Cargando modelo Whisper '{nombre}' "
@@ -129,6 +129,7 @@ def _obtener_metadata_ejecucion(configuracion):
 @cronometrar(etiqueta="Transcripcion total")
 def transcribir_whisper(paths, nombre_modelo=MODELO_DEFAULT, batch_size=BATCH_SIZE):
     configuracion = _resolver_configuracion_whisper(crear_perfil_hardware(), batch_size=batch_size)
+    # configuracion = _resolver_configuracion_whisper(crear_perfil_hardware(forzado={"device": "cpu", "cpu_physical_cores": 4}), batch_size=batch_size)
     pipeline, configuracion = _cargar_modelo(nombre_modelo, configuracion)
 
     audio_data, sample_rate = sf.read(str(paths["audio"]), dtype="float32", always_2d=False)
@@ -182,6 +183,7 @@ def transcribir_whisper(paths, nombre_modelo=MODELO_DEFAULT, batch_size=BATCH_SI
     data = {
         "modelo": f"Whisper {nombre_modelo}",
         "perfil": PERFIL_WHISPER,
+        "hardware_config": configuracion,
         "tiempo_transcripcion": None,
         "speed_up": None,
         "rt_factor": None,
