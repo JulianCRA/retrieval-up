@@ -1,6 +1,7 @@
+from compartido.utils import crear_perfil_hardware
 import numpy as np
 
-from compartido.utils import obtener_dispositivo
+from compartido.utils import crear_perfil_hardware
 
 _silero_model = None
 
@@ -15,9 +16,8 @@ def vad_silero(audio, samplerate, umbral=0.4, duracion_minima=0.25, duracion_sil
             f"VAD Silero requiere audio a 16 kHz, se obtuvo {samplerate} Hz."
         )
 
-    device = obtener_dispositivo()
-    if device.type == "cuda":
-        import torch
+    device = crear_perfil_hardware()["device"]
+    if device == "cuda":
         print(f"[INFO] VAD Silero (GPU: {torch.cuda.get_device_name(0)})")
     else:
         print(f"[INFO] VAD Silero (CPU)")
