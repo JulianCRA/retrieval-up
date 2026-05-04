@@ -1,196 +1,186 @@
-import soundfile as sf
 from faster_whisper import BatchedInferencePipeline, WhisperModel
-from tqdm import tqdm
+import soundfile as sf
+import time
 
-from compartido.json_utils import cargar_archivo, guardar_archivo
 from compartido.rutas import DESCARGAS_DIR
-from compartido.utils import crear_perfil_hardware, cronometrar
+from compartido.utils import cronometrar, crear_perfil_hardware
+from compartido.json_utils import cargar_archivo, guardar_archivo
+
 from .chunks import obtener_fragmentos_asr
+
 
 MODELOS_DIR = DESCARGAS_DIR / "modelos" / "whisper"
 
-MODELO_DEFAULT = "large-v3-turbo"  # opciones: tiny, base, small, large-v3-turbo
-MODELO_DEFAULT = "small"
-
 PERFIL_WHISPER = {
-    "padding": 0.18,
-    "join_gap": 0.50,
-    "duracion_minima": 20.00,
-    "duracion_target": 28.00,
-    "duracion_maxima": 30.00,
-    "overlap": 0.15,
+	"padding": 0.18,
+	"join_gap": 0.50,
+	"duracion_minima": 20.00,
+	"duracion_target": 28.00,
+	"duracion_maxima": 30.00,
+	"overlap": 0.15,
 }
 
-WHISPER_SAMPLE_RATE = 16_000
+# Empirically calibrated on RTX 16 GB, batch=92, chunks ≤30 s
+# Cost is dominated by encoder activations, which scale with model depth
+_VRAM_POR_CHUNK_MB = {
+	"tiny":     40,
+	"base":     90,
+	"small":   160,
+	"medium":  200,
+	"large":   245,
+	"large-v2": 245,
+	"large-v3": 245,
+	"turbo":   245,  # large-v3 encoder
+}
 
-BATCH_SIZE = 16  # segmentos procesados en paralelo por el GPU
-WHISPER_BEAM_SIZE = 5
-REDONDEO_TIEMPOS = 3
+def _vram_por_chunk(model_size_or_path: str) -> int:
+	key = next((k for k in _VRAM_POR_CHUNK_MB if model_size_or_path.startswith(k)), "large")
+	return _VRAM_POR_CHUNK_MB[key]
 
+def _batch_size_cpu(n_fragmentos: int, model_size_or_path: str, hardware: dict) -> int:
+	physical = hardware.get("cpu_physical_cores") or hardware.get("cpu_logical_cores") or 1
+	ram_gb = hardware.get("ram_gb", 4)
+	chunk_mb = _vram_por_chunk(model_size_or_path)
+	batch_size = 1
 
-def _obtener_cpu_threads(perfil_hardware):
-    cpu_threads = perfil_hardware["cpu_physical_cores"] or perfil_hardware["cpu_logical_cores"] or 1
-    return max(1, cpu_threads)
+	if ram_gb >= 16 and physical >= 8:
+		batch_size = 2
 
+	if ram_gb >= 32 and physical >= 12 and chunk_mb <= _VRAM_POR_CHUNK_MB["small"]:
+		batch_size = 4
 
-def _resolver_configuracion_whisper(perfil_hardware, batch_size=BATCH_SIZE):
-    device_detectado = perfil_hardware["device"]
-    ram_gb = perfil_hardware["ram_gb"]
-    vram_gb = perfil_hardware["vram_gb"]
-    cpu_threads = _obtener_cpu_threads(perfil_hardware)
+	return max(1, min(batch_size, n_fragmentos))
 
-    if device_detectado == "cuda":
-        if vram_gb >= 14:
-            compute_type = "float16"
-            batch_size = min(batch_size, 16)
-        elif vram_gb >= 8:
-            compute_type = "int8_float16"
-            batch_size = min(batch_size, 8)
-        else:
-            compute_type = "int8_float16"
-            batch_size = min(batch_size, 4)
-        device = "cuda"
-    else:
-        if device_detectado in {"mps", "xpu"}:
-            print(f"[ADVERTENCIA] faster-whisper no soporta '{device_detectado}' en esta configuracion. Se usara CPU.")
-        device = "cpu"
-        compute_type = "int8" if ram_gb >= 8 else "float32"
-        batch_size = 2 if ram_gb >= 16 else 1
+def computar_parametros(n_fragmentos: int, model_size_or_path: str, margen: float = 0.85):
+	# hardware = crear_perfil_hardware(forzado={"vram_gb": 8})
+	hardware = crear_perfil_hardware()
+	dev = hardware.get("device", "cpu")
 
-    return {
-        "device": device,
-        "compute_type": compute_type,
-        "cpu_threads": cpu_threads,
-        "num_workers": 1,
-        "batch_size": max(1, batch_size),
-    }
+	params = {"device": dev, "ram_gb": hardware.get("ram_gb", 0)}
+	
+	if dev in ["cuda", "mps", "xpu"]:
+		total_vram = hardware.get("vram_gb", 0) * 1024
+		free_vram  = total_vram * margen
+		chunk_mb   = _vram_por_chunk(model_size_or_path)
+		optimal    = int(free_vram // chunk_mb)
+		params["batch_size"]   = max(1, min(optimal, n_fragmentos))
+		params["compute_type"] = "float16" if hardware["device"] == "cuda" else "int8_float16"
+		params["vram_gb"] = hardware.get("vram_gb", 0)
+	else:
+		threads = hardware.get("cpu_physical_cores") or hardware.get("cpu_logical_cores") or 1
+		params["num_workers"]  = 1
+		params["cpu_threads"]  = max(1, threads)
+		params["batch_size"]   = _batch_size_cpu(n_fragmentos, model_size_or_path, hardware)
+		params["compute_type"] = "int8"
 
+	return params
 
-def _cargar_modelo(nombre=MODELO_DEFAULT, configuracion=None):
-    configuracion = configuracion or _resolver_configuracion_whisper(crear_perfil_hardware(), batch_size=BATCH_SIZE)
-    MODELOS_DIR.mkdir(parents=True, exist_ok=True)
-    print(
-        f"[INFO] Cargando modelo Whisper '{nombre}' "
-        f"(device={configuracion['device']}, compute_type={configuracion['compute_type']}, "
-        f"cpu_threads={configuracion['cpu_threads']}, batch_size={configuracion['batch_size']})..."
-    )
-    base = WhisperModel(
-        nombre,
-        device=configuracion["device"],
-        compute_type=configuracion["compute_type"],
-        cpu_threads=configuracion["cpu_threads"],
-        num_workers=configuracion["num_workers"],
-        download_root=str(MODELOS_DIR),
-    )
-    return BatchedInferencePipeline(model=base), configuracion
+def serializar_transcripciones(segmentos):
+    transcripciones = []
 
-
-def _redondear_tiempo(valor):
-    return round(max(0.0, float(valor)), REDONDEO_TIEMPOS)
-
-
-def _serializar_segmentos_whisper(segmentos_whisper, inicio_fragmento, fin_fragmento):
-    segmentos_serializados = []
-
-    for segmento in segmentos_whisper:
+    for segmento in segmentos:
         texto = segmento.text.strip()
         if not texto:
             continue
 
-        inicio = _redondear_tiempo(max(inicio_fragmento, inicio_fragmento + float(segmento.start)))
-        fin = _redondear_tiempo(min(fin_fragmento, inicio_fragmento + float(segmento.end)))
+        inicio = round(float(segmento.start), 3)
+        fin = round(float(segmento.end), 3)
+
         if fin <= inicio:
             continue
 
-        segmentos_serializados.append({
+        transcripciones.append({
+            "texto": texto,
             "inicio": inicio,
             "fin": fin,
-            "duracion": round(fin - inicio, 2),
-            "texto": texto,
+            "duracion": round(fin - inicio, 3),
         })
 
-    return segmentos_serializados
+    transcripciones.sort(key=lambda item: (item["inicio"], item["fin"]))
+    return transcripciones
 
+@cronometrar(etiqueta="Cargando modelo Whisper")
+def cargar_modelo_whisper(model_size_or_path, params):
+	print(f"[INFO] 'whisper-{model_size_or_path}' en {params['device'].upper()} ({params['compute_type']})...")
+	model = WhisperModel(
+		model_size_or_path,
+		device=params["device"],
+		compute_type=params["compute_type"],
+		cpu_threads=params.get("cpu_threads", 1),
+		num_workers=params.get("num_workers", 1),
+	)
+	return model
 
-def _obtener_metadata_ejecucion(configuracion):
-    metadata = {
-        "device": configuracion["device"],
-        "compute_type": configuracion["compute_type"],
-        "batch_size": configuracion["batch_size"],
-    }
+@cronometrar(etiqueta="Whisper")
+def transcribir_whisper(paths, modelo="small"):
+	segmentos_raw = cargar_archivo(paths["segmentos"])["segmentos"]
+	spans = obtener_fragmentos_asr(segmentos_raw, PERFIL_WHISPER)
+	audio_path = paths["audio"]
 
-    if configuracion["device"] == "cpu":
-        metadata["cpu_threads"] = configuracion["cpu_threads"]
-        metadata["num_workers"] = configuracion["num_workers"]
+	params = computar_parametros(len(spans), modelo)
 
-    return metadata
+	model = cargar_modelo_whisper(modelo, params)
+	carga_tiempo = round(cargar_modelo_whisper.elapsed, 3)
 
+	transcripciones = []
 
-@cronometrar(etiqueta="Transcripcion total")
-def transcribir_whisper(paths, nombre_modelo=MODELO_DEFAULT, batch_size=BATCH_SIZE):
-    configuracion = _resolver_configuracion_whisper(crear_perfil_hardware(), batch_size=batch_size)
-    # configuracion = _resolver_configuracion_whisper(crear_perfil_hardware(forzado={"device": "cpu", "cpu_physical_cores": 4}), batch_size=batch_size)
-    pipeline, configuracion = _cargar_modelo(nombre_modelo, configuracion)
+	audio_data, sr = sf.read(str(audio_path), dtype="float32", always_2d=False)
+	clip_timestamps = [{"start": s, "end": e} for s, e in spans]
+	pipeline = BatchedInferencePipeline(model=model)
 
-    audio_data, sample_rate = sf.read(str(paths["audio"]), dtype="float32", always_2d=False)
-    if audio_data.ndim > 1:
-        audio_data = audio_data.mean(axis=1)
-    if sample_rate != WHISPER_SAMPLE_RATE:
-        raise ValueError(
-            f"[ERROR] Tasa de muestreo {sample_rate} Hz incompatible con Whisper ({WHISPER_SAMPLE_RATE} Hz). "
-            "Remuestrea el audio antes de transcribir."
-        )
-
-    segmentos = cargar_archivo(paths["segmentos"])
-    if segmentos is None:
-        print(f"[ERROR] No se pudo cargar los segmentos desde '{paths['segmentos']}'.")
-        return
-    segmentos = obtener_fragmentos_asr(segmentos["segmentos"], PERFIL_WHISPER)
-
-    transcripciones = []
-    print(
-        f"[INFO] Transcribiendo {len(segmentos)} fragmentos con Whisper "
-        f"(device={configuracion['device']}, compute_type={configuracion['compute_type']}, "
-        f"batch_size={configuracion['batch_size']})..."
-    )
-
-    for inicio, fin in tqdm(segmentos, desc="Transcribiendo", unit="segmento"):
-        frame_inicio = int(inicio * WHISPER_SAMPLE_RATE)
-        frame_fin = int(fin * WHISPER_SAMPLE_RATE)
-        audio_seg = audio_data[frame_inicio:frame_fin]
-        if audio_seg.size == 0:
-            continue
-
-        segments, _ = pipeline.transcribe(
-            audio_seg,
-            language="es",
-            beam_size=WHISPER_BEAM_SIZE,
-            batch_size=configuracion["batch_size"],
-            vad_filter=False,
+	tiempo_inicial = time.perf_counter()
+	if params["device"] in ["cuda", "mps", "xpu"]:
+		print(f"Procesando {len(spans)} fragmentos con batch size {params['batch_size']} en {params['device'].upper()} ({params['compute_type']})...")
+		segments, info = pipeline.transcribe(
+			audio_data,
+			batch_size=params["batch_size"],
+			language="es",
+			without_timestamps=True,
+			log_progress=True,
+			clip_timestamps=clip_timestamps,
+			vad_filter=False,
             condition_on_previous_text=False,
             word_timestamps=False,
-        )
+		)
+	else:
+		print(
+			f"Procesando {len(spans)} fragmentos en CPU ({params['compute_type']}) "
+			f"batch_size={params['batch_size']} cpu_threads={params['cpu_threads']}..."
+		)
+		segments, info = pipeline.transcribe(
+			audio_data,
+			batch_size=params["batch_size"],
+			language="es",
+			without_timestamps=True,
+			log_progress=True,
+			clip_timestamps=clip_timestamps,
+			vad_filter=False,
+            condition_on_previous_text=False,
+            word_timestamps=False,
+		)
 
-        segmentos_whisper = _serializar_segmentos_whisper(list(segments), inicio, fin)
-        if not segmentos_whisper:
-            continue
+	transcripciones = serializar_transcripciones(list(segments))
+	tiempo_transcripcion = round(time.perf_counter() - tiempo_inicial, 3)
+	
+	data = {
+		"modelo": f"whisper-{modelo}",
+		"tiempo_carga": carga_tiempo,
+		"hardware": params,
+		"tiempo_transcripcion": tiempo_transcripcion,
+		"tiempo_total": None,
+		"speed_up": None,
+		"rtf": None,
+		"duracion_audio": info.duration,
+		"fragmentos": len(spans),
+		"perfil_fragmentacion": PERFIL_WHISPER,
+		"transcripciones": transcripciones,
+		"texto_completo": " ".join([t["texto"] for t in transcripciones])
+	}
+	
+	if guardar_archivo(paths["transcripciones"], data):
+		print(f"[INFO] Transcripciones guardadas correctamente.")
 
-        transcripciones.extend(segmentos_whisper)
 
-    transcripciones.sort(key=lambda x: x["inicio"])
-    full_text = " ".join(t["texto"] for t in transcripciones).strip()
-
-    data = {
-        "modelo": f"Whisper {nombre_modelo}",
-        "perfil": PERFIL_WHISPER,
-        "hardware_config": configuracion,
-        "tiempo_transcripcion": None,
-        "speed_up": None,
-        "rt_factor": None,
-        "num_segmentos": len(transcripciones),
-        "duracion_promedio_segmento": round(sum(t["duracion"] for t in transcripciones) / len(transcripciones), 2) if transcripciones else 0,
-        "transcripciones": transcripciones,
-        "texto": full_text
-    }
-    data.update(_obtener_metadata_ejecucion(configuracion))
-    guardar_archivo(paths["transcripciones"], data)
+# HASH = "3bb50e9b2b8c3960"
+# audio_path = DESCARGAS_DIR / HASH / "audio_procesado.wav"
+# transcribir_whisper({"segmentos": DESCARGAS_DIR / HASH / "segmentos.json", "audio": audio_path, "transcripciones": DESCARGAS_DIR / HASH / "transcripciones.json"}, modelo="turbo")
