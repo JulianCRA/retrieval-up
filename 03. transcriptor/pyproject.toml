@@ -27,36 +27,15 @@ whisper = [
     "faster-whisper>=1.0",
 ]
 
-# Qwen3 ASR en CPU:
-#   pip install -e ".[qwen3-asr]"
-# Qwen3 ASR en GPU (CUDA 12.8):
-#   pip install -e ".[qwen3-asr]" --extra-index-url https://download.pytorch.org/whl/cu128
-qwen3-asr = [
-    "torch>=2.0",
-    "qwen-asr",
-]
-
-# Cohere Transcribe en CPU:
+# Cohere Transcribe (GGUF via CrispASR).
+# La inferencia se ejecuta mediante el binario C++ cohere-main de CrispASR;
+# huggingface_hub se usa unicamente para descargar los archivos .gguf.
+# Modelo fuente:  CohereLabs/cohere-transcribe-03-2026
+# Cuantizaciones: cstr/cohere-transcribe-03-2026-GGUF
+# Runtime C++:    https://github.com/CrispStrobe/CrispASR (rama ggml)
 #   pip install -e ".[cohere-transcribe]"
-# Cohere Transcribe en GPU (CUDA 12.8):
-#   pip install -e ".[cohere-transcribe]" --extra-index-url https://download.pytorch.org/whl/cu128
 cohere-transcribe = [
-    "torch>=2.0",
-    "transformers>=5.4.0",
-    "accelerate",
-    "librosa",
-    "sentencepiece",
-    "protobuf",
-]
-
-# Wav2Vec2 Spanish en CPU:
-#   pip install -e ".[wav2vec2-spanish]"
-# Wav2Vec2 Spanish en GPU (CUDA 12.8):
-#   pip install -e ".[wav2vec2-spanish]" --extra-index-url https://download.pytorch.org/whl/cu128
-wav2vec2-spanish = [
-    "torch>=2.0",
-    "transformers>=4.30",
-    "librosa",
+    "huggingface_hub>=0.23",
 ]
 
 # Todos en CPU
@@ -65,13 +44,7 @@ wav2vec2-spanish = [
 #   pip install -e ".[todos]" --extra-index-url https://download.pytorch.org/whl/cu128
 todos = [
     "faster-whisper>=1.0",
-    "torch>=2.0",
-    "qwen-asr",
-    "transformers==4.57.6",
-    "accelerate",
-    "librosa",
-    "sentencepiece",
-    "protobuf",
+    "huggingface_hub>=0.23",
 ]
 
 [project.scripts]
