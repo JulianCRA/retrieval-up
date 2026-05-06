@@ -27,15 +27,14 @@ whisper = [
     "faster-whisper>=1.0",
 ]
 
-# Cohere Transcribe (GGUF via CrispASR).
-# La inferencia se ejecuta mediante el binario C++ cohere-main de CrispASR;
-# huggingface_hub se usa unicamente para descargar los archivos .gguf.
+# Cohere Transcribe (native via HuggingFace transformers).
 # Modelo fuente:  CohereLabs/cohere-transcribe-03-2026
-# Cuantizaciones: cstr/cohere-transcribe-03-2026-GGUF
-# Runtime C++:    https://github.com/CrispStrobe/CrispASR (rama ggml)
-#   pip install -e ".[cohere-transcribe]"
+# CPU: pip install -e ".[cohere-transcribe]"
+# GPU: pip install -e ".[cohere-transcribe]" --extra-index-url https://download.pytorch.org/whl/cu128
 cohere-transcribe = [
-    "huggingface_hub>=0.23",
+    "transformers>=4.52",
+    "torch>=2.2",
+    "tqdm>=4.66",
 ]
 
 # Todos en CPU
