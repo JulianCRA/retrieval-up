@@ -8,6 +8,8 @@ version = "0.1.0"
 description = "Corrige errores de transcripcion"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+	"torch>=2.0",
+	"PyYAML>=6.0",
 ]
 
 
