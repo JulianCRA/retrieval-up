@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "corrector"
+version = "0.1.0"
+description = "Corrige errores de transcripcion"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+]
+
+
+[project.scripts]
+corr = "corrector.__main__:main"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
