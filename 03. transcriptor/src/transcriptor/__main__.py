@@ -98,3 +98,15 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
             "rt_factor": rt_factor,
             "speed_up": str(speed_up) + "x" if speed_up is not None else None
         })
+    elif modelo == "cohere":
+        from .cohere_asr import transcribir_cohere
+        transcribir_cohere(paths)
+        tiempo_transcripcion = round(transcribir_cohere.elapsed, 2)
+        duracion = audio_path.stat().st_size / (16000 * 2)
+        rt_factor = round(tiempo_transcripcion / duracion, 2) if duracion > 0 else None
+        speed_up = round(1 / rt_factor, 2) if rt_factor > 0 else None
+        ju.guardar_nodos(paths["transcripciones"], {
+            "tiempo_transcripcion": tiempo_transcripcion,
+            "rt_factor": rt_factor,
+            "speed_up": str(speed_up) + "x" if speed_up is not None else None
+        })
