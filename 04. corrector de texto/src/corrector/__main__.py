@@ -6,6 +6,7 @@ import torch
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
+from corrector.alinear import alinear_segmentos
 
 
 CACHE_DIR = DESCARGAS_DIR / "modelos" / "torch_hub"
@@ -38,7 +39,12 @@ def procesar_hash(hash_id: str):
 
 	texto = data.get("texto")
 	if not texto:
-		print(f"[ERROR] No se encontro texto para corregir en '{transcripciones_path}'.")
+		print(f"[ERROR] No se encontro 'texto' en '{transcripciones_path}'.")
+		sys.exit(1)
+
+	segmentos = data.get("transcripciones")
+	if not segmentos:
+		print(f"[ERROR] No se encontraron transcripciones en '{transcripciones_path}'.")
 		sys.exit(1)
 
 	apply_te = cargar_silero_te()
@@ -47,14 +53,15 @@ def procesar_hash(hash_id: str):
 		texto_corregido = apply_te(texto, lan="es")
 
 	print(f"[INFO] Correccion realizada para hash '{hash_id}'.")
-	# print(f"[INFO] Texto original: {texto}")
-	print(f"[INFO] Texto corregido: {texto_corregido}")
 
-	# if ju.guardar_archivo(transcripciones_path, data):
-	# 	print(f"[OK] Correccion guardada en '{transcripciones_path}'.")
-	# 	return
+	data["texto_corregido"] = texto_corregido
+	data["transcripciones"] = alinear_segmentos(segmentos, texto_corregido)
 
-	# print(f"[ERROR] No se pudo guardar '{transcripciones_path}'.")
+	if ju.guardar_archivo(transcripciones_path, data):
+		print(f"[OK] Correccion guardada en '{transcripciones_path}'.")
+		return
+
+	print(f"[ERROR] No se pudo guardar '{transcripciones_path}'.")
 	sys.exit(1)
 
 
