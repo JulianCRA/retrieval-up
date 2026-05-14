@@ -22,17 +22,12 @@ def main():
 		required=True,
 		help="Hash del contenido dentro de descargas/",
 	)
-	parser.add_argument(
-		"--sobrescribir",
-		action="store_true",
-		help="Reemplaza el texto original por el corregido.",
-	)
 
 	args = parser.parse_args()
-	procesar_hash(args.hash, sobrescribir=args.sobrescribir)
+	procesar_hash(args.hash)
 
 
-def procesar_hash(hash_id: str, sobrescribir: bool = False):
+def procesar_hash(hash_id: str):
 	folder = DESCARGAS_DIR / hash_id
 	transcripciones_path = folder / "transcripciones.json"
 
@@ -41,7 +36,7 @@ def procesar_hash(hash_id: str, sobrescribir: bool = False):
 		print(f"[ERROR] No se pudo cargar '{transcripciones_path}'.")
 		sys.exit(1)
 
-	texto = extraer_texto(data)
+	texto = data.get("texto")
 	if not texto:
 		print(f"[ERROR] No se encontro texto para corregir en '{transcripciones_path}'.")
 		sys.exit(1)
@@ -51,27 +46,15 @@ def procesar_hash(hash_id: str, sobrescribir: bool = False):
 	with torch.inference_mode():
 		texto_corregido = apply_te(texto, lan="es")
 
-	data["texto_original"] = texto
-	data["texto_corregido"] = texto_corregido
-	data["correccion"] = {
-		"metodo": "silero_te",
-		"idioma": "es",
-		"sobrescribir": sobrescribir,
-	}
+	print(f"[INFO] Correccion realizada para hash '{hash_id}'.")
+	# print(f"[INFO] Texto original: {texto}")
+	print(f"[INFO] Texto corregido: {texto_corregido}")
 
-	if sobrescribir:
-		if "texto_completo" in data:
-			data["texto_completo"] = texto_corregido
-		elif "texto" in data:
-			data["texto"] = texto_corregido
-		else:
-			data["texto_completo"] = texto_corregido
+	# if ju.guardar_archivo(transcripciones_path, data):
+	# 	print(f"[OK] Correccion guardada en '{transcripciones_path}'.")
+	# 	return
 
-	if ju.guardar_archivo(transcripciones_path, data):
-		print(f"[OK] Correccion guardada en '{transcripciones_path}'.")
-		return
-
-	print(f"[ERROR] No se pudo guardar '{transcripciones_path}'.")
+	# print(f"[ERROR] No se pudo guardar '{transcripciones_path}'.")
 	sys.exit(1)
 
 
@@ -99,31 +82,6 @@ def cargar_silero_te():
 	return _APPLY_TE
 
 
-def extraer_texto(data: dict) -> str:
-	texto_completo = data.get("texto_completo")
-	if isinstance(texto_completo, str) and texto_completo.strip():
-		return limpiar_texto(texto_completo)
-
-	texto = data.get("texto")
-	if isinstance(texto, str) and texto.strip():
-		return limpiar_texto(texto)
-
-	segmentos = data.get("transcripciones")
-	if isinstance(segmentos, list):
-		partes = []
-		for segmento in segmentos:
-			if not isinstance(segmento, dict):
-				continue
-			valor = segmento.get("texto")
-			if isinstance(valor, str) and valor.strip():
-				partes.append(limpiar_texto(valor))
-		return " ".join(partes).strip()
-
-	return ""
-
-
-def limpiar_texto(texto: str) -> str:
-	return " ".join(texto.split())
 
 
 if __name__ == "__main__":
