@@ -3,6 +3,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForTokenClassification
 
 from compartido.rutas import DESCARGAS_DIR
+from compartido.utils import cronometrar
 
 
 MODEL_ID = "kredor/punctuate-all"
@@ -18,11 +19,9 @@ _SPACY_NLP = None
 
 # ── punctuation ───────────────────────────────────────────────────────────────
 
-def _cargar():
+@cronometrar(etiqueta="Carga punctuate-all")
+def _hacer_carga_modelo():
 	global _TOKENIZER, _MODEL, _DEVICE
-
-	if _MODEL is not None:
-		return _TOKENIZER, _MODEL
 
 	_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 	print(f"[INFO] Cargando '{MODEL_ID}' en {_DEVICE}...")
@@ -34,6 +33,12 @@ def _cargar():
 	_MODEL.to(_DEVICE)
 	_MODEL.eval()
 
+
+def _cargar():
+	if _MODEL is not None:
+		return _TOKENIZER, _MODEL
+
+	_hacer_carga_modelo()
 	return _TOKENIZER, _MODEL
 
 
@@ -85,14 +90,19 @@ def _puntuar(texto: str) -> str:
 
 # ── capitalization ────────────────────────────────────────────────────────────
 
-def _cargar_spacy():
+@cronometrar(etiqueta="Carga spacy")
+def _hacer_carga_spacy():
 	global _SPACY_NLP
-
-	if _SPACY_NLP is not None:
-		return _SPACY_NLP
 
 	print(f"[INFO] Cargando '{SPACY_MODEL_ID}'...")
 	_SPACY_NLP = spacy.load(SPACY_MODEL_ID)
+
+
+def _cargar_spacy():
+	if _SPACY_NLP is not None:
+		return _SPACY_NLP
+
+	_hacer_carga_spacy()
 	return _SPACY_NLP
 
 
@@ -110,5 +120,6 @@ def _capitalizar(texto: str) -> str:
 
 # ── public entry point ────────────────────────────────────────────────────────
 
+@cronometrar(etiqueta="Procesamiento punctuate-all")
 def corregir_p_all(texto: str) -> str:
 	return _capitalizar(_puntuar(texto))

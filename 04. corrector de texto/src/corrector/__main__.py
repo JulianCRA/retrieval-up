@@ -5,6 +5,7 @@ import torch
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
+from compartido.utils import cronometrar
 from corrector.alinear import alinear_segmentos
 from corrector.p_all import corregir_p_all
 from corrector.silero import cargar_silero_te
@@ -54,8 +55,11 @@ def procesar_hash(hash_id: str, backend: str = "silero"):
 		texto_corregido = corregir_p_all(texto)
 	else:
 		apply_te = cargar_silero_te()
+		@cronometrar(etiqueta="Procesamiento silero_te")
+		def _procesar_silero():
+			return apply_te(texto, lan="es")
 		with torch.inference_mode():
-			texto_corregido = apply_te(texto, lan="es")
+			texto_corregido = _procesar_silero()
 
 	print(f"[INFO] Correccion realizada para hash '{hash_id}' (backend={backend}).")
 

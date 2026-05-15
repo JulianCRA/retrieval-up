@@ -3,6 +3,7 @@ import os
 import torch
 
 from compartido.rutas import DESCARGAS_DIR
+from compartido.utils import cronometrar
 
 
 CACHE_DIR = DESCARGAS_DIR / "modelos" / "torch_hub"
@@ -10,11 +11,9 @@ CACHE_DIR = DESCARGAS_DIR / "modelos" / "torch_hub"
 _APPLY_TE = None
 
 
-def cargar_silero_te():
+@cronometrar(etiqueta="Carga silero_te")
+def _hacer_carga_silero_te():
 	global _APPLY_TE
-
-	if _APPLY_TE is not None:
-		return _APPLY_TE
 
 	CACHE_DIR.mkdir(parents=True, exist_ok=True)
 	torch.hub.set_dir(str(CACHE_DIR))
@@ -31,4 +30,13 @@ def cargar_silero_te():
 		raise RuntimeError(f"silero_te no reporta soporte para espanol: {languages}")
 
 	_APPLY_TE = apply_te
+
+
+def cargar_silero_te():
+	global _APPLY_TE
+
+	if _APPLY_TE is not None:
+		return _APPLY_TE
+
+	_hacer_carga_silero_te()
 	return _APPLY_TE
