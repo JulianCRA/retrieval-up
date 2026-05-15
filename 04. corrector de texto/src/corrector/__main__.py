@@ -19,7 +19,6 @@ _KREDOR_MODEL = None
 KREDOR_MODEL_ID = "kredor/punctuate-all"
 KREDOR_CACHE_DIR = DESCARGAS_DIR / "modelos" / "kredor"
 _KREDOR_CHUNK_WORDS = 180  # stay safely under the 512-token limit
-_PUNCT_MAP = {"COMMA": ",", "PERIOD": ".", "QUESTION": "?", "EXCLAMATION": "!"}
 
 
 def main():
@@ -33,7 +32,7 @@ def main():
 		help="Hash del contenido dentro de descargas/",
 	)
 	parser.add_argument(
-		"--backend",
+		"--m",
 		choices=["silero", "kredor"],
 		default="silero",
 		help="Motor de puntuacion: silero (default) o kredor/punctuate-all.",
@@ -140,7 +139,7 @@ def corregir_kredor(texto: str) -> str:
 
 	partes = []
 	for palabra, label in zip(palabras, etiquetas):
-		punct = _PUNCT_MAP.get(label, "")
+		punct = "" if label == "0" else label
 		partes.append(palabra + punct)
 
 	return " ".join(partes)
