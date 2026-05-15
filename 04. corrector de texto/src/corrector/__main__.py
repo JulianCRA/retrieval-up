@@ -6,7 +6,7 @@ import torch
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
 from corrector.alinear import alinear_segmentos
-from corrector.kredor import corregir_kredor
+from corrector.p_all import corregir_p_all
 from corrector.silero import cargar_silero_te
 
 
@@ -22,9 +22,9 @@ def main():
 	)
 	parser.add_argument(
 		"--m",
-		choices=["silero", "kredor"],
+		choices=["silero", "p-all"],
 		default="silero",
-		help="Motor de puntuacion: silero (default) o kredor/punctuate-all.",
+		help="Motor de puntuacion: silero (default) o p-all (punctuate-all + spacy).",
 	)
 
 	args = parser.parse_args()
@@ -50,8 +50,8 @@ def procesar_hash(hash_id: str, backend: str = "silero"):
 		print(f"[ERROR] No se encontraron transcripciones en '{transcripciones_path}'.")
 		sys.exit(1)
 
-	if backend == "kredor":
-		texto_corregido = corregir_kredor(texto)
+	if backend == "p-all":
+		texto_corregido = corregir_p_all(texto)
 	else:
 		apply_te = cargar_silero_te()
 		with torch.inference_mode():
