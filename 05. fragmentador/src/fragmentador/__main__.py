@@ -15,12 +15,19 @@ def main():
 		required=True,
 		help="Hash del contenido dentro de descargas/",
 	)
+	parser.add_argument(
+		"--max-tokens",
+		type=int,
+		default=512,
+		dest="max_tokens",
+		help="Tamano maximo del chunk en tokens estimados (default: 512). En espanol, y a grandes rasgos, 1 token equicale a 3.5 caracteres, o a 0.75 palabras.",
+	)
 
 	args = parser.parse_args()
-	procesar_hash(args.hash)
+	procesar_hash(args.hash, max_tokens=args.max_tokens)
 
 
-def procesar_hash(hash_id: str):
+def procesar_hash(hash_id: str, max_tokens: int = 512):
 	folder = DESCARGAS_DIR / hash_id
 	correcciones_path = folder / "correcciones.json"
 
@@ -37,6 +44,7 @@ def procesar_hash(hash_id: str):
 	print(f"[OK] Correcciones cargadas desde '{correcciones_path}'.")
 	print(f"[INFO] Modelo corrector: {data.get('modelo_corrector', 'desconocido')}")
 	print(f"[INFO] Segmentos disponibles: {len(transcripciones)}")
+	print(f"[INFO] Tamano maximo de chunk: {max_tokens} tokens estimados")
 
 
 if __name__ == "__main__":
