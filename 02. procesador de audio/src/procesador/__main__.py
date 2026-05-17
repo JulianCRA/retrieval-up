@@ -196,7 +196,11 @@ def procesar_segmentos(segmentos, min_gap=0.5):
     return resultado
 
 def generar_audio_de_prueba(audio, samplerate, segmentos, folder):
-    audio_procesado = np.zeros_like(audio)
+    t = np.arange(len(audio)) / samplerate
+    beep_mono = (np.sin(2 * np.pi * 1000 * t) * 0.1).astype(audio.dtype)
+    beep = np.stack([beep_mono] * audio.shape[1], axis=1) if audio.ndim == 2 else beep_mono
+
+    audio_procesado = beep.copy()
     for inicio, fin in segmentos:
         inicio_muestra = int(inicio * samplerate)
         fin_muestra = int(fin * samplerate)
