@@ -96,7 +96,7 @@ def procesar_archivo(ruta, metodo=None, folder=None):
         print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
         segmentos = vad(audio, samplerate, metodo=metodo)
         tiempo_vad = vad.elapsed
-        segmentos = procesar_segmentos(segmentos)
+        segmentos = procesar_segmentos(segmentos, min_gap=0.3)
 
         ## generar audio procesado con solo los segmentos de voz detectados
         generar_audio_de_prueba(audio, samplerate, segmentos, folder)
