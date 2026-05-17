@@ -26,10 +26,10 @@ def main():
 	parser.add_argument(
 		"--overlap",
 		type=int,
-		default=10,
+		default=20,
 		dest="overlap_pct",
 		metavar="PCT",
-		help="Porcentaje de max_tokens que se solapa entre chunks consecutivos, 0-50 (default: 10).",
+		help="Porcentaje de max_tokens que se solapa entre chunks consecutivos, 0-50 (default: 20).",
 	)
 
 	args = parser.parse_args()

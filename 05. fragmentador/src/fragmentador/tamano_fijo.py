@@ -22,12 +22,17 @@ def _construir_fragmento(segmentos: list[dict]) -> dict:
 
 
 def _segmentos_overlap(segmentos: list[dict], overlap_tokens: int) -> list[dict]:
-	"""Retorna los ultimos segmentos del chunk cuya suma de tokens no supere overlap_tokens."""
+	"""Retorna los ultimos segmentos del chunk para usar como overlap.
+	Siempre incluye al menos el ultimo segmento (best-effort);
+	agrega mas hacia atras mientras no se supere overlap_tokens.
+	"""
+	if overlap_tokens == 0:
+		return []
 	cola: list[dict] = []
 	tokens = 0
 	for seg in reversed(segmentos):
 		t = _estimar_tokens(seg.get("texto", ""))
-		if tokens + t > overlap_tokens:
+		if cola and tokens + t > overlap_tokens:
 			break
 		cola.insert(0, seg)
 		tokens += t
