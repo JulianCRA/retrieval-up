@@ -7,7 +7,10 @@ name = "fragmentador"
 version = "0.1.0"
 description = "Fragmenta el texto corregido en chunks para su vectorizacion."
 requires-python = ">=3.11,<3.13"
-dependencies = []
+dependencies = [
+    "sentence-transformers>=3.0",
+    "numpy>=1.24",
+]
 
 [project.scripts]
 frag = "fragmentador.__main__:main"
