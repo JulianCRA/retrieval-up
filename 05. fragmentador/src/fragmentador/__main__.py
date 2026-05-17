@@ -34,7 +34,7 @@ def main():
 	parser.add_argument(
 		"--overlap",
 		type=int,
-		default=20,
+		default=None,
 		dest="overlap_pct",
 		metavar="PCT",
 		help="Porcentaje de max_tokens que se solapa entre chunks consecutivos, 0-50 (default: 20). Solo tamano_fijo.",
@@ -43,18 +43,36 @@ def main():
 	parser.add_argument(
 		"--umbral",
 		type=float,
-		default=0.5,
-		help="Umbral de similitud coseno para corte semantico, 0-1 (default: 0.5). Solo semantico.",
+		default=None,
+		help="Umbral de similitud coseno para corte semantico, 0-1 (default: 0.5). Valores cercanos a 0 solo cortan ante cambios tematicos muy bruscos (chunks grandes); valores cercanos a 1 cortan ante cualquier variacion minima (chunks pequenos). Solo semantico.",
 	)
 	parser.add_argument(
 		"--min-tokens",
 		type=int,
-		default=64,
+		default=None,
 		dest="min_tokens",
 		help="Tamano minimo de chunk; los mas pequenos se fusionan con el anterior (default: 64). Solo semantico.",
 	)
 
 	args = parser.parse_args()
+
+	if args.estrategia == "tamano_fijo":
+		if args.umbral is not None:
+			parser.error("--umbral solo es valido con --estrategia semantico")
+		if args.min_tokens is not None:
+			parser.error("--min-tokens solo es valido con --estrategia semantico")
+	elif args.estrategia == "semantico":
+		if args.overlap_pct is not None:
+			parser.error("--overlap solo es valido con --estrategia tamano_fijo")
+
+	# Aplicar defaults segun estrategia
+	if args.overlap_pct is None:
+		args.overlap_pct = 20
+	if args.umbral is None:
+		args.umbral = 0.5
+	if args.min_tokens is None:
+		args.min_tokens = 64
+
 	procesar_hash(
 		args.hash,
 		estrategia=args.estrategia,
