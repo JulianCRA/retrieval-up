@@ -3,6 +3,7 @@ import sys
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
+from fragmentador.tamano_fijo import fragmentar
 
 
 def main():
@@ -45,6 +46,25 @@ def procesar_hash(hash_id: str, max_tokens: int = 512):
 	print(f"[INFO] Modelo corrector: {data.get('modelo_corrector', 'desconocido')}")
 	print(f"[INFO] Segmentos disponibles: {len(transcripciones)}")
 	print(f"[INFO] Tamano maximo de chunk: {max_tokens} tokens estimados")
+
+	fragmentos = fragmentar(transcripciones, max_tokens=max_tokens)
+	tiempo_fragmentacion = round(fragmentar.elapsed, 2)
+
+	resultado = {
+		"estrategia": "tamano_fijo",
+		"max_tokens": max_tokens,
+		"tiempo_fragmentacion": tiempo_fragmentacion,
+		"num_fragmentos": len(fragmentos),
+		"fragmentos": fragmentos,
+	}
+
+	fragmentos_path = folder / "fragmentos.json"
+	if ju.guardar_archivo(fragmentos_path, resultado):
+		print(f"[OK] Fragmentos guardados en '{fragmentos_path}'.")
+		return
+
+	print(f"[ERROR] No se pudo guardar '{fragmentos_path}'.")
+	sys.exit(1)
 
 
 if __name__ == "__main__":
