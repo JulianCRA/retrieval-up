@@ -1,7 +1,5 @@
 import os
 
-import torch
-
 from compartido.rutas import DESCARGAS_DIR
 from compartido.utils import cronometrar
 
@@ -14,6 +12,7 @@ _APPLY_TE = None
 @cronometrar(etiqueta="Carga silero_te")
 def _hacer_carga_silero_te():
 	global _APPLY_TE
+	import torch
 
 	CACHE_DIR.mkdir(parents=True, exist_ok=True)
 	torch.hub.set_dir(str(CACHE_DIR))

@@ -1,7 +1,3 @@
-import spacy
-import torch
-from transformers import AutoTokenizer, AutoModelForTokenClassification
-
 from compartido.rutas import DESCARGAS_DIR
 from compartido.utils import cronometrar
 
@@ -22,6 +18,8 @@ _SPACY_NLP = None
 @cronometrar(etiqueta="Carga punctuate-all")
 def _hacer_carga_modelo():
 	global _TOKENIZER, _MODEL, _DEVICE
+	import torch
+	from transformers import AutoTokenizer, AutoModelForTokenClassification
 
 	_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 	print(f"[INFO] Cargando '{MODEL_ID}' en {_DEVICE}...")
@@ -43,6 +41,7 @@ def _cargar():
 
 
 def _predecir_etiquetas(tokenizer, model, palabras: list) -> list:
+	import torch
 	encoding = tokenizer(
 		palabras,
 		is_split_into_words=True,
@@ -93,6 +92,7 @@ def _puntuar(texto: str) -> str:
 @cronometrar(etiqueta="Carga spacy")
 def _hacer_carga_spacy():
 	global _SPACY_NLP
+	import spacy
 
 	print(f"[INFO] Cargando '{SPACY_MODEL_ID}'...")
 	_SPACY_NLP = spacy.load(SPACY_MODEL_ID)
@@ -120,6 +120,5 @@ def _capitalizar(texto: str) -> str:
 
 # ── public entry point ────────────────────────────────────────────────────────
 
-@cronometrar(etiqueta="Procesamiento punctuate-all")
 def corregir_p_all(texto: str) -> str:
 	return _capitalizar(_puntuar(texto))

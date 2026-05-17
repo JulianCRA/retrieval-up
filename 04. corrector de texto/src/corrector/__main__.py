@@ -1,14 +1,10 @@
 import argparse
 import sys
 
-import torch
-
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
 from compartido.utils import cronometrar
 from corrector.alinear import alinear_segmentos
-from corrector.p_all import corregir_p_all
-from corrector.silero import cargar_silero_te
 
 
 def main():
@@ -52,8 +48,14 @@ def procesar_hash(hash_id: str, backend: str = "silero"):
 		sys.exit(1)
 
 	if backend == "p-all":
-		texto_corregido = corregir_p_all(texto)
+		from corrector.p_all import corregir_p_all
+		@cronometrar(etiqueta="Procesamiento p-all")
+		def _procesar_p_all():
+			return corregir_p_all(texto)
+		texto_corregido = _procesar_p_all()
 	else:
+		import torch
+		from corrector.silero import cargar_silero_te
 		apply_te = cargar_silero_te()
 		@cronometrar(etiqueta="Procesamiento silero_te")
 		def _procesar_silero():
