@@ -8,7 +8,7 @@ from compartido.utils import cronometrar
 
 MODEL_ID = "kredor/punctuate-all"
 CACHE_DIR = DESCARGAS_DIR / "modelos" / "kredor"
-SPACY_MODEL_ID = "es_core_news_sm"
+SPACY_MODEL_ID = "es_core_news_lg"
 _CHUNK_WORDS = 180  # stay safely under the 512-token limit
 
 _TOKENIZER = None

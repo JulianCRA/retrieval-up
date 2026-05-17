@@ -5,13 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "corrector"
 version = "0.1.0"
-description = "Corrige errores de transcripcion"
+description = "Anade puntuacion a la transcripcion"
 requires-python = ">=3.11,<3.13"
 dependencies = [
 	"torch>=2.0",
 	"PyYAML>=6.0",
 	"transformers>=4.40",
 	"spacy>=3.0",
+	"es-core-news-lg @ https://github.com/explosion/spacy-models/releases/download/es_core_news_lg-3.8.0/es_core_news_lg-3.8.0-py3-none-any.whl",
 ]
 
 
