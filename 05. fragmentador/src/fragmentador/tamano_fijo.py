@@ -18,6 +18,10 @@ def _construir_fragmento(segmentos: list[dict]) -> dict:
 		"num_caracteres": len(texto),
 		"num_palabras": len(texto.split()),
 		"texto": texto,
+		"segmentos": [
+			{"inicio": s["inicio"], "fin": s["fin"], "texto": s.get("texto", "")}
+			for s in segmentos
+		],
 	}
 
 
