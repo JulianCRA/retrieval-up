@@ -2,15 +2,14 @@ import argparse
 import json
 import sys
 
-import lancedb
 import numpy as np
-import pyarrow as pa
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
 from compartido.embedders import listar_ids
 from compartido.utils import cronometrar
 
+from indexador import lance
 from indexador.bm25 import tokenizar, tokens_a_texto
 
 
@@ -119,7 +118,7 @@ def procesar(
 	reclear: bool,
 	tags: dict[str, str],
 ):
-	db = _abrir_lancedb(db_ruta)
+	db = lance.abrir(db_ruta)
 	for hash_id in hashes:
 		_procesar_hash(
 			hash_id,
@@ -140,7 +139,7 @@ def _tokenizar_fragmentos(fragmentos: list[dict]) -> list[list[str]]:
 
 def _procesar_hash(
 	hash_id: str,
-	db: lancedb.DBConnection,
+	db,
 	embedder: str | None,
 	tabla: str | None,
 	reclear: bool,
@@ -241,57 +240,7 @@ def _procesar_hash(
 			"vector": embeddings[i].tolist(),
 		})
 
-	_escribir_tabla(db, nombre_tabla, filas, dim=dim, reclear=reclear)
-
-
-def _abrir_lancedb(db_ruta: str) -> lancedb.DBConnection:
-	db = lancedb.connect(db_ruta)
-	print(f"[OK] LanceDB conectado en '{db_ruta}'. Tablas existentes: {db.list_tables()}")
-	return db
-
-
-def _esquema(dim: int) -> pa.Schema:
-	return pa.schema([
-		pa.field("id", pa.string()),
-		pa.field("hash", pa.string()),
-		pa.field("chunk_idx", pa.int32()),
-		pa.field("texto", pa.string()),
-		pa.field("texto_bm25", pa.string()),
-		pa.field("inicio", pa.float32()),
-		pa.field("fin", pa.float32()),
-		pa.field("tags", pa.string()),
-		pa.field("vector", pa.list_(pa.float32(), dim)),
-	])
-
-
-def _escribir_tabla(
-	db: lancedb.DBConnection,
-	nombre: str,
-	filas: list[dict],
-	dim: int,
-	reclear: bool,
-):
-	existe = nombre in db.list_tables()
-	if existe and reclear:
-		db.drop_table(nombre)
-		print(f"[OK] Tabla '{nombre}' eliminada (--recrear).")
-		existe = False
-
-	esquema = _esquema(dim)
-	if not existe:
-		tabla = db.create_table(nombre, data=filas, schema=esquema)
-		print(f"[OK] Tabla '{nombre}' creada con {len(filas)} filas (dim={dim}).")
-	else:
-		tabla = db.open_table(nombre)
-		if tabla.schema.field("vector").type.list_size != dim:
-			print(
-				f"[ERROR] Dim de la tabla '{nombre}' "
-				f"({tabla.schema.field('vector').type.list_size}) "
-				f"no coincide con dim del lote ({dim})."
-			)
-			sys.exit(1)
-		tabla.add(filas)
-		print(f"[OK] Tabla '{nombre}': agregadas {len(filas)} filas (total={tabla.count_rows()}).")
+	lance.escribir_tabla(db, nombre_tabla, filas, dim=dim, reclear=reclear)
 
 
 if __name__ == "__main__":
