@@ -22,6 +22,7 @@ def _hacer_carga_modelo():
 	from transformers import AutoTokenizer, AutoModelForTokenClassification
 
 	_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+	# _DEVICE = torch.device("cpu")
 	print(f"[INFO] Cargando '{MODEL_ID}' en {_DEVICE}...")
 	CACHE_DIR.mkdir(parents=True, exist_ok=True)
 	cache = str(CACHE_DIR)
@@ -40,10 +41,10 @@ def _cargar():
 	return _TOKENIZER, _MODEL
 
 
-def _predecir_etiquetas(tokenizer, model, palabras: list) -> list:
+def _predecir_etiquetas_batch(tokenizer, model, chunks: list) -> list:
 	import torch
 	encoding = tokenizer(
-		palabras,
+		chunks,
 		is_split_into_words=True,
 		return_tensors="pt",
 		padding=True,
@@ -54,18 +55,20 @@ def _predecir_etiquetas(tokenizer, model, palabras: list) -> list:
 	with torch.inference_mode():
 		logits = model(**inputs).logits
 
-	preds = logits.argmax(dim=-1)[0].tolist()
+	preds = logits.argmax(dim=-1).tolist()
 	id2label = model.config.id2label
 
-	word_ids = encoding.word_ids(0)
-	etiquetas_por_palabra: dict = {}
-	for token_idx, word_id in enumerate(word_ids):
-		if word_id is None:
-			continue
-		if word_id not in etiquetas_por_palabra:
-			etiquetas_por_palabra[word_id] = id2label[preds[token_idx]]
-
-	return [etiquetas_por_palabra.get(i, "0") for i in range(len(palabras))]
+	salida = []
+	for b, chunk in enumerate(chunks):
+		word_ids = encoding.word_ids(b)
+		etiquetas_por_palabra: dict = {}
+		for token_idx, word_id in enumerate(word_ids):
+			if word_id is None:
+				continue
+			if word_id not in etiquetas_por_palabra:
+				etiquetas_por_palabra[word_id] = id2label[preds[b][token_idx]]
+		salida.append([etiquetas_por_palabra.get(i, "0") for i in range(len(chunk))])
+	return salida
 
 
 def _puntuar(texto: str) -> str:
@@ -74,10 +77,9 @@ def _puntuar(texto: str) -> str:
 	if not palabras:
 		return texto
 
-	etiquetas: list = []
-	for i in range(0, len(palabras), _CHUNK_WORDS):
-		chunk = palabras[i : i + _CHUNK_WORDS]
-		etiquetas.extend(_predecir_etiquetas(tokenizer, model, chunk))
+	chunks = [palabras[i : i + _CHUNK_WORDS] for i in range(0, len(palabras), _CHUNK_WORDS)]
+	etiquetas_por_chunk = _predecir_etiquetas_batch(tokenizer, model, chunks)
+	etiquetas = [e for sub in etiquetas_por_chunk for e in sub]
 
 	partes = []
 	for palabra, label in zip(palabras, etiquetas):
