@@ -20,6 +20,7 @@ def esquema(dim: int) -> pa.Schema:
 		pa.field("inicio", pa.float32()),
 		pa.field("fin", pa.float32()),
 		pa.field("texto", pa.string()),
+		pa.field("texto_bm25", pa.string()),
 	])
 	return pa.schema([
 		pa.field("id", pa.string()),

@@ -241,6 +241,7 @@ def _procesar_hash(
 				"inicio": float(s.get("inicio", 0.0)),
 				"fin": float(s.get("fin", 0.0)),
 				"texto": s.get("texto", ""),
+				"texto_bm25": tokens_a_texto(tokenizar(s.get("texto", ""))),
 			}
 			for s in (frag.get("segmentos") or [])
 		]
