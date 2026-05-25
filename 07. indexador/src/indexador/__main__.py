@@ -137,6 +137,14 @@ def _tokenizar_fragmentos(fragmentos: list[dict]) -> list[list[str]]:
 	return [tokenizar(f["texto"]) for f in fragmentos]
 
 
+@cronometrar(etiqueta="Tokenizacion BM25 segmentos")
+def _tokenizar_segmentos(fragmentos: list[dict]) -> list[list[list[str]]]:
+	return [
+		[tokenizar(s.get("texto", "")) for s in (frag.get("segmentos") or [])]
+		for frag in fragmentos
+	]
+
+
 def _procesar_hash(
 	hash_id: str,
 	db,
@@ -212,33 +220,38 @@ def _procesar_hash(
 		sys.exit(1)
 	embeddings = embeddings.astype(np.float32, copy=False)
 
-	# --- BM25: tokenizar y persistir ---
-	tokens_por_fragmento = _tokenizar_fragmentos(fragmentos)
-
+	# --- BM25: tokenizar o cargar desde disco ---
 	tokens_bm25_path = folder / "tokens_bm25.json"
-	resultado_bm25 = {
-		"hash": hash_id,
-		"tokenizador": "spacy_es_core_news_lg",
-		"con_stemming": True,
-		"num_fragmentos": len(fragmentos),
-		"fragmentos": [
-			{
-				"chunk_idx": i,
-				"tokens": tokens,
-				"texto_bm25": tokens_a_texto(tokens),
-			}
-			for i, tokens in enumerate(tokens_por_fragmento)
-		],
-	}
-	if ju.guardar_archivo(tokens_bm25_path, resultado_bm25):
-		print(f"[OK] Tokens BM25 guardados en '{tokens_bm25_path}'.")
+	if not reclear and tokens_bm25_path.exists():
+		bm25_data = ju.cargar_archivo(tokens_bm25_path)
+		tokens_por_fragmento = [f["tokens"] for f in bm25_data["fragmentos"]]
+		print(f"[OK] Tokens BM25 cargados desde '{tokens_bm25_path}'.")
 	else:
-		print(f"[ERROR] No se pudo guardar '{tokens_bm25_path}'.")
-		sys.exit(1)
+		tokens_por_fragmento = _tokenizar_fragmentos(fragmentos)
+		resultado_bm25 = {
+			"hash": hash_id,
+			"tokenizador": "spacy_es_core_news_lg",
+			"con_stemming": True,
+			"num_fragmentos": len(fragmentos),
+			"fragmentos": [
+				{
+					"chunk_idx": i,
+					"tokens": tokens,
+					"texto_bm25": tokens_a_texto(tokens),
+				}
+				for i, tokens in enumerate(tokens_por_fragmento)
+			],
+		}
+		if ju.guardar_archivo(tokens_bm25_path, resultado_bm25):
+			print(f"[OK] Tokens BM25 guardados en '{tokens_bm25_path}'.")
+		else:
+			print(f"[ERROR] No se pudo guardar '{tokens_bm25_path}'.")
+			sys.exit(1)
 
 	# --- LanceDB: construir filas y escribir ---
 	# nombre_tabla ya definido arriba
 	tags_json = json.dumps(tags, ensure_ascii=False)
+	tokens_por_segmento = _tokenizar_segmentos(fragmentos)
 
 	filas = []
 	for i, frag in enumerate(fragmentos):
@@ -247,9 +260,9 @@ def _procesar_hash(
 				"inicio": float(s.get("inicio", 0.0)),
 				"fin": float(s.get("fin", 0.0)),
 				"texto": s.get("texto", ""),
-				"texto_bm25": tokens_a_texto(tokenizar(s.get("texto", ""))),
+				"texto_bm25": tokens_a_texto(tokens_por_segmento[i][j]),
 			}
-			for s in (frag.get("segmentos") or [])
+			for j, s in enumerate(frag.get("segmentos") or [])
 		]
 		filas.append({
 			"id": f"{hash_id}:{i}",
