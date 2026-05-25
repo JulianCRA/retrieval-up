@@ -9,7 +9,7 @@ description = "Datos compartidos y funciones auxiliares para manipulación de ar
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "psutil>=5.9",
-    "transformers>=4.40",
+    "transformers>=4.40,<5.0",
 ]
 
 [tool.setuptools.package-dir]
