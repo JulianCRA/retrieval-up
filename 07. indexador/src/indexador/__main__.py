@@ -1,8 +1,12 @@
 import argparse
 import sys
 
+from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
 from compartido.embedders import listar_ids
+from compartido.utils import cronometrar
+
+from indexador.bm25 import tokenizar, tokens_a_texto
 
 
 # Directorio por defecto del indice LanceDB.
@@ -110,7 +114,63 @@ def procesar(
 	reclear: bool,
 	tags: dict[str, str],
 ):
-	pass  # implementacion pendiente
+	for hash_id in hashes:
+		_procesar_hash(hash_id, embedder=embedder, db_ruta=db_ruta, tabla=tabla, reclear=reclear, tags=tags)
+
+
+@cronometrar(etiqueta="Tokenizacion BM25")
+def _tokenizar_fragmentos(fragmentos: list[dict]) -> list[list[str]]:
+	return [tokenizar(f["texto"]) for f in fragmentos]
+
+
+def _procesar_hash(
+	hash_id: str,
+	embedder: str | None,
+	db_ruta: str,
+	tabla: str | None,
+	reclear: bool,
+	tags: dict[str, str],
+):
+	folder = DESCARGAS_DIR / hash_id
+	fragmentos_path = folder / "fragmentos.json"
+
+	data = ju.cargar_archivo(fragmentos_path)
+	if not data:
+		print(f"[ERROR] No se pudo cargar '{fragmentos_path}'.")
+		sys.exit(1)
+
+	fragmentos = data.get("fragmentos")
+	if not fragmentos:
+		print(f"[ERROR] No hay fragmentos en '{fragmentos_path}'.")
+		sys.exit(1)
+
+	print(f"[OK] Fragmentos cargados: {len(fragmentos)} (hash={hash_id})")
+
+	# --- BM25: tokenizar y persistir ---
+	tokens_por_fragmento = _tokenizar_fragmentos(fragmentos)
+
+	tokens_bm25_path = folder / "tokens_bm25.json"
+	resultado_bm25 = {
+		"hash": hash_id,
+		"tokenizador": "spacy_es_core_news_lg",
+		"con_stemming": True,
+		"num_fragmentos": len(fragmentos),
+		"fragmentos": [
+			{
+				"chunk_idx": i,
+				"tokens": tokens,
+				"texto_bm25": tokens_a_texto(tokens),
+			}
+			for i, tokens in enumerate(tokens_por_fragmento)
+		],
+	}
+	if ju.guardar_archivo(tokens_bm25_path, resultado_bm25):
+		print(f"[OK] Tokens BM25 guardados en '{tokens_bm25_path}'.")
+	else:
+		print(f"[ERROR] No se pudo guardar '{tokens_bm25_path}'.")
+		sys.exit(1)
+
+	# --- LanceDB: pendiente de implementar ---
 
 
 if __name__ == "__main__":
