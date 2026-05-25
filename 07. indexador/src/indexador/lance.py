@@ -52,8 +52,9 @@ def escribir_tabla(
 		existe = False
 
 	if not existe:
-		db.create_table(nombre, data=filas, schema=esquema(dim))
+		tabla = db.create_table(nombre, data=filas, schema=esquema(dim))
 		print(f"[OK] Tabla '{nombre}' creada con {len(filas)} filas (dim={dim}).")
+		_crear_indice_fts(tabla)
 		return
 
 	tabla = db.open_table(nombre)
@@ -66,3 +67,14 @@ def escribir_tabla(
 		sys.exit(1)
 	tabla.add(filas)
 	print(f"[OK] Tabla '{nombre}': agregadas {len(filas)} filas (total={tabla.count_rows()}).")
+	_crear_indice_fts(tabla)
+
+
+def _crear_indice_fts(tabla):
+	tabla.create_fts_index(
+		"texto_bm25",
+		tokenizer_name="whitespace",
+		with_position=False,
+		replace=True,
+	)
+	print(f"[OK] Indice FTS (BM25) creado sobre 'texto_bm25'.")
