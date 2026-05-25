@@ -63,6 +63,7 @@ def escribir_tabla(
 	if not existe:
 		tabla = db.create_table(nombre, data=filas, schema=esquema(dim))
 		print(f"[OK] Tabla '{nombre}' creada con {len(filas)} filas (dim={dim}).")
+		_crear_indice_ann(tabla)
 		_crear_indice_fts(tabla)
 		return
 
@@ -76,7 +77,20 @@ def escribir_tabla(
 		sys.exit(1)
 	tabla.add(filas)
 	print(f"[OK] Tabla '{nombre}': agregadas {len(filas)} filas (total={tabla.count_rows()}).")
+	_crear_indice_ann(tabla)
 	_crear_indice_fts(tabla)
+
+
+ANN_MIN_FILAS = 256
+
+
+def _crear_indice_ann(tabla):
+	n = tabla.count_rows()
+	if n < ANN_MIN_FILAS:
+		print(f"[INFO] Indice ANN omitido ({n} filas < {ANN_MIN_FILAS} requeridas). Se usara full scan.")
+		return
+	tabla.create_index(metric="cosine", replace=True)
+	print(f"[OK] Indice ANN (IVF-PQ, cosine) creado ({n} filas).")
 
 
 def _crear_indice_fts(tabla):
