@@ -149,6 +149,7 @@ def _procesar_hash(
 	fragmentos_path = folder / "fragmentos.json"
 	vectores_meta_path = folder / "vectores.json"
 	vectores_npz_path = folder / "vectores.npz"
+	info_path = folder / "info.json"
 
 	data = ju.cargar_archivo(fragmentos_path)
 	if not data:
@@ -161,6 +162,13 @@ def _procesar_hash(
 		sys.exit(1)
 
 	print(f"[OK] Fragmentos cargados: {len(fragmentos)} (hash={hash_id})")
+
+	# --- Info de la fuente ---
+	info = ju.cargar_archivo(info_path) or {}
+	descarga = info.get("descarga") or {}
+	titulo = info.get("title") or ""
+	uri = descarga.get("uri") or ""
+	fuente = descarga.get("fuente") or ""
 
 	# --- Vectores ---
 	meta_vec = ju.cargar_archivo(vectores_meta_path)
@@ -228,6 +236,14 @@ def _procesar_hash(
 
 	filas = []
 	for i, frag in enumerate(fragmentos):
+		segmentos = [
+			{
+				"inicio": float(s.get("inicio", 0.0)),
+				"fin": float(s.get("fin", 0.0)),
+				"texto": s.get("texto", ""),
+			}
+			for s in (frag.get("segmentos") or [])
+		]
 		filas.append({
 			"id": f"{hash_id}:{i}",
 			"hash": hash_id,
@@ -236,6 +252,10 @@ def _procesar_hash(
 			"texto_bm25": tokens_a_texto(tokens_por_fragmento[i]),
 			"inicio": float(frag.get("inicio", 0.0)),
 			"fin": float(frag.get("fin", 0.0)),
+			"segmentos": segmentos,
+			"titulo": titulo,
+			"uri": uri,
+			"fuente": fuente,
 			"tags": tags_json,
 			"vector": embeddings[i].tolist(),
 		})
