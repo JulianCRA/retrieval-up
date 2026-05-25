@@ -1,93 +1,134 @@
-import numpy as np
-from sentence_transformers import SentenceTransformer
+"""Estrategia de fragmentacion semantica: corta donde cae la similitud
+coseno entre segmentos vecinos, usando el MISMO modelo de embedding objetivo
+(opcionalmente un modelo `boundary` mas liviano).
 
+Mide por separado el tiempo de carga del modelo y el de inferencia.
+"""
+from __future__ import annotations
+
+import time
+
+import numpy as np
+
+from compartido.embedders import Sizer, cargar_sentence_transformer, get_spec
 from compartido.utils import cronometrar
 
-_CHARS_POR_TOKEN = 3.5
-MODELO_ID = "paraphrase-multilingual-MiniLM-L12-v2"
-
-
-def _estimar_tokens(texto: str) -> int:
-	return int(len(texto) / _CHARS_POR_TOKEN)
-
-
-def _construir_fragmento(segmentos: list[dict]) -> dict:
-	texto = " ".join(seg.get("texto", "") for seg in segmentos).strip()
-	return {
-		"inicio": segmentos[0]["inicio"],
-		"fin": segmentos[-1]["fin"],
-		"duracion": round(segmentos[-1]["fin"] - segmentos[0]["inicio"], 3),
-		"num_caracteres": len(texto),
-		"num_palabras": len(texto.split()),
-		"texto": texto,
-		"segmentos": [
-			{"inicio": s["inicio"], "fin": s["fin"], "texto": s.get("texto", "")}
-			for s in segmentos
-		],
-	}
-
-
-def _similitud_coseno(a: np.ndarray, b: np.ndarray) -> float:
-	dot = float(np.dot(a, b))
-	norm = float(np.linalg.norm(a) * np.linalg.norm(b))
-	return dot / norm if norm > 0 else 0.0
+from fragmentador._comun import construir_fragmento, preparar_segmentos
 
 
 @cronometrar(etiqueta="Fragmentacion semantica")
 def fragmentar(
 	transcripciones: list[dict],
+	sizer: Sizer,
 	umbral: float = 0.5,
 	min_tokens: int = 64,
-	max_tokens: int = 512,
-) -> list[dict]:
+	boundary_embedder: str | None = None,
+	device: str = "cpu",
+) -> dict:
+	"""Devuelve un dict con:
+	  - fragmentos: list[dict]
+	  - boundary_hf_id: str
+	  - tiempos: {"carga_modelo": float, "inferencia": float}
 	"""
-	Fragmenta segmentos usando similitud semantica entre segmentos consecutivos.
-
-	Corta donde la similitud coseno cae por debajo de `umbral` (cambio tematico)
-	o cuando el chunk acumula mas de `max_tokens`. Fusiona fragmentos finales
-	menores a `min_tokens` con el anterior para evitar chunks muy pequenos.
-	"""
+	vacio = {"fragmentos": [], "boundary_hf_id": "",
+	         "tiempos": {"carga_modelo": 0.0, "inferencia": 0.0}}
 	if not transcripciones:
-		return []
+		return vacio
 
-	modelo = SentenceTransformer(MODELO_ID)
-	textos = [seg.get("texto", "") for seg in transcripciones]
-	embeddings = modelo.encode(textos, show_progress_bar=False, convert_to_numpy=True)
+	segmentos, tokens_seg = preparar_segmentos(transcripciones, sizer)
+	if not segmentos:
+		return vacio
 
-	# Similitud coseno entre cada par de segmentos consecutivos
+	boundary_id = boundary_embedder or sizer.spec.id_corto
+	boundary_spec = get_spec(boundary_id)
+
+	# 1) Carga del modelo
+	t0 = time.perf_counter()
+	modelo = cargar_sentence_transformer(boundary_id, device=device)
+	tiempo_carga = round(time.perf_counter() - t0, 2)
+	print(f"[TIEMPO] Carga modelo boundary ({boundary_id}): {tiempo_carga:.2f}s")
+
+	# 2) Inferencia (encode de todos los segmentos)
+	textos_emb = [boundary_spec.prefijo_passage + s.get("texto", "") for s in segmentos]
+	t0 = time.perf_counter()
+	embeddings = modelo.encode(
+		textos_emb,
+		show_progress_bar=False,
+		convert_to_numpy=True,
+		normalize_embeddings=True,
+	)
+	tiempo_inferencia = round(time.perf_counter() - t0, 2)
+	print(f"[TIEMPO] Inferencia boundary ({len(segmentos)} segmentos): {tiempo_inferencia:.2f}s")
+
+	# Con embeddings normalizados el coseno es el dot directo.
 	similitudes = [
-		_similitud_coseno(embeddings[i], embeddings[i + 1])
+		float(np.dot(embeddings[i], embeddings[i + 1]))
 		for i in range(len(embeddings) - 1)
 	]
 
+	chunk_max = sizer.chunk_max
 	fragmentos: list[dict] = []
-	grupo: list[dict] = []
-	tokens_acumulados = 0
+	buf_seg: list[dict] = []
+	buf_tok: list[int] = []
+	buf_total = 0
 
-	for i, seg in enumerate(transcripciones):
-		grupo.append(seg)
-		tokens_acumulados += _estimar_tokens(seg.get("texto", ""))
+	for i, (seg, t) in enumerate(zip(segmentos, tokens_seg)):
+		if buf_seg and buf_total + t > chunk_max:
+			fragmentos.append(construir_fragmento(buf_seg, sizer))
+			buf_seg, buf_tok, buf_total = [], [], 0
 
-		es_ultimo = i == len(transcripciones) - 1
-		corte_semantico = not es_ultimo and similitudes[i] < umbral
-		corte_max = not es_ultimo and tokens_acumulados >= max_tokens
+		buf_seg.append(seg)
+		buf_tok.append(t)
+		buf_total += t
 
-		if corte_semantico or corte_max:
-			fragmentos.append(_construir_fragmento(grupo))
-			grupo = []
-			tokens_acumulados = 0
+		es_ultimo = i == len(segmentos) - 1
+		if not es_ultimo and similitudes[i] < umbral:
+			fragmentos.append(construir_fragmento(buf_seg, sizer))
+			buf_seg, buf_tok, buf_total = [], [], 0
 
-	if grupo:
-		fragmentos.append(_construir_fragmento(grupo))
+	if buf_seg:
+		fragmentos.append(construir_fragmento(buf_seg, sizer))
 
-	# Fusionar fragmentos finales demasiado pequeños con el anterior
 	if min_tokens > 0 and len(fragmentos) > 1:
-		fusionados: list[list[dict]] = []
-		for frag in fragmentos:
-			if fusionados and _estimar_tokens(frag["texto"]) < min_tokens:
-				fusionados[-1] = fusionados[-1] + frag["segmentos"]
-			else:
-				fusionados.append(frag["segmentos"])
-		fragmentos = [_construir_fragmento(segs) for segs in fusionados]
+		fragmentos = _fusionar_pequenos(fragmentos, sizer, min_tokens)
 
-	return fragmentos
+	return {
+		"fragmentos": fragmentos,
+		"boundary_hf_id": boundary_spec.hf_id,
+		"tiempos": {
+			"carga_modelo": tiempo_carga,
+			"inferencia": tiempo_inferencia,
+		},
+	}
+
+
+def _fusionar_pequenos(
+	fragmentos: list[dict], sizer: Sizer, min_tokens: int
+) -> list[dict]:
+	"""Fusiona hacia atras (o hacia adelante si no entra) cualquier fragmento
+	con `num_tokens` < min_tokens, manteniendo `num_tokens <= chunk_max`.
+	"""
+	chunk_max = sizer.chunk_max
+	resultado: list[list[dict]] = [list(f["segmentos"]) for f in fragmentos]
+	tokens = [f["num_tokens"] for f in fragmentos]
+
+	i = 0
+	while i < len(resultado):
+		if tokens[i] >= min_tokens or len(resultado) == 1:
+			i += 1
+			continue
+		if i > 0 and tokens[i - 1] + tokens[i] <= chunk_max:
+			resultado[i - 1].extend(resultado[i])
+			tokens[i - 1] += tokens[i]
+			resultado.pop(i)
+			tokens.pop(i)
+			continue
+		if i + 1 < len(resultado) and tokens[i] + tokens[i + 1] <= chunk_max:
+			resultado[i].extend(resultado[i + 1])
+			tokens[i] += tokens[i + 1]
+			resultado.pop(i + 1)
+			tokens.pop(i + 1)
+			continue
+		i += 1
+
+	return [construir_fragmento(segs, sizer) for segs in resultado]

@@ -1,77 +1,67 @@
+"""Estrategia de fragmentacion por tamano fijo con tokens reales del modelo."""
+from __future__ import annotations
+
+from compartido.embedders import Sizer
 from compartido.utils import cronometrar
 
-
-# Estimacion conservadora para espanol (~3.5 caracteres por token)
-_CHARS_POR_TOKEN = 3.5
+from fragmentador._comun import construir_fragmento, preparar_segmentos
 
 
-def _estimar_tokens(texto: str) -> int:
-	return int(len(texto) / _CHARS_POR_TOKEN)
-
-
-def _construir_fragmento(segmentos: list[dict]) -> dict:
-	texto = " ".join(seg.get("texto", "") for seg in segmentos).strip()
-	return {
-		"inicio": segmentos[0]["inicio"],
-		"fin": segmentos[-1]["fin"],
-		"duracion": round(segmentos[-1]["fin"] - segmentos[0]["inicio"], 3),
-		"num_caracteres": len(texto),
-		"num_palabras": len(texto.split()),
-		"texto": texto,
-		"segmentos": [
-			{"inicio": s["inicio"], "fin": s["fin"], "texto": s.get("texto", "")}
-			for s in segmentos
-		],
-	}
-
-
-def _segmentos_overlap(segmentos: list[dict], overlap_tokens: int) -> list[dict]:
-	"""Retorna los ultimos segmentos del chunk para usar como overlap.
-	Siempre incluye al menos el ultimo segmento (best-effort);
-	agrega mas hacia atras mientras no se supere overlap_tokens.
+def _segmentos_overlap(
+	segmentos: list[dict], tokens_segs: list[int], overlap_tokens: int
+) -> tuple[list[dict], list[int]]:
+	"""Toma desde el final los segmentos cuyo total <= overlap_tokens.
+	Nunca incluye un segmento que por si solo supere overlap_tokens.
 	"""
-	if overlap_tokens == 0:
-		return []
-	cola: list[dict] = []
-	tokens = 0
-	for seg in reversed(segmentos):
-		t = _estimar_tokens(seg.get("texto", ""))
-		if cola and tokens + t > overlap_tokens:
+	if overlap_tokens <= 0:
+		return [], []
+	cola_seg: list[dict] = []
+	cola_tok: list[int] = []
+	acum = 0
+	for seg, t in zip(reversed(segmentos), reversed(tokens_segs)):
+		if acum + t > overlap_tokens:
 			break
-		cola.insert(0, seg)
-		tokens += t
-	return cola
+		cola_seg.insert(0, seg)
+		cola_tok.insert(0, t)
+		acum += t
+	return cola_seg, cola_tok
 
 
 @cronometrar(etiqueta="Fragmentacion tamano fijo")
 def fragmentar(
 	transcripciones: list[dict],
-	max_tokens: int = 512,
-	overlap_pct: int = 10,
+	sizer: Sizer,
+	overlap_pct: int = 20,
 ) -> tuple[list[dict], int]:
+	"""Retorna (fragmentos, overlap_tokens) usando el tokenizador real del modelo.
+
+	`overlap_pct` se aplica sobre `sizer.chunk_max` (0-50).
 	"""
-	Retorna (fragmentos, overlap_tokens_aprox).
-	overlap_pct: porcentaje de max_tokens que se solapa entre chunks consecutivos (0-50).
-	"""
-	overlap_tokens = int(max_tokens * overlap_pct / 100)
+	overlap_pct = max(0, min(50, overlap_pct))
+	chunk_max = sizer.chunk_max
+	overlap_tokens = int(chunk_max * overlap_pct / 100)
 
-	fragmentos = []
-	segmentos_acumulados: list[dict] = []
-	tokens_acumulados = 0
+	segmentos, tokens_seg = preparar_segmentos(transcripciones, sizer)
 
-	for seg in transcripciones:
-		texto_seg = seg.get("texto", "")
-		tokens_seg = _estimar_tokens(texto_seg)
+	fragmentos: list[dict] = []
+	buf_seg: list[dict] = []
+	buf_tok: list[int] = []
+	buf_total = 0
 
-		if segmentos_acumulados and tokens_acumulados + tokens_seg > max_tokens:
-			fragmentos.append(_construir_fragmento(segmentos_acumulados))
-			segmentos_acumulados = _segmentos_overlap(segmentos_acumulados, overlap_tokens)
-			tokens_acumulados = sum(_estimar_tokens(s.get("texto", "")) for s in segmentos_acumulados)
+	for seg, t in zip(segmentos, tokens_seg):
+		# Si anadir este segmento excederia el limite, cerrar el fragmento.
+		if buf_seg and buf_total + t > chunk_max:
+			fragmentos.append(construir_fragmento(buf_seg, sizer))
+			buf_seg, buf_tok = _segmentos_overlap(buf_seg, buf_tok, overlap_tokens)
+			buf_total = sum(buf_tok)
+			# Si tras el overlap aun no entra, descartar overlap.
+			if buf_total + t > chunk_max:
+				buf_seg, buf_tok, buf_total = [], [], 0
+		buf_seg.append(seg)
+		buf_tok.append(t)
+		buf_total += t
 
-		segmentos_acumulados.append(seg)
-		tokens_acumulados += tokens_seg
-
-	if segmentos_acumulados:
-		fragmentos.append(_construir_fragmento(segmentos_acumulados))
+	if buf_seg:
+		fragmentos.append(construir_fragmento(buf_seg, sizer))
 
 	return fragmentos, overlap_tokens
