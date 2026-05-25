@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vectorizador"
+version = "0.1.0"
+description = "Calcula embeddings densos por fragmento y los persiste para indexado."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+	"compartido",
+	"sentence-transformers>=3.0,<4.0",
+	"transformers>=4.40,<5.0",
+	"numpy>=1.24",
+]
+
+[project.scripts]
+vect = "vectorizador.__main__:main"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
