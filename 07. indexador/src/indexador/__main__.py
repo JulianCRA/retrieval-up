@@ -1,6 +1,8 @@
 import argparse
 import sys
 
+import lancedb
+
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
 from compartido.embedders import listar_ids
@@ -170,8 +172,13 @@ def _procesar_hash(
 		print(f"[ERROR] No se pudo guardar '{tokens_bm25_path}'.")
 		sys.exit(1)
 
-	# --- LanceDB: pendiente de implementar ---
+def _abrir_lancedb(db_ruta: str) -> lancedb.DBConnection:
+	# --- LanceDB: abrir/crear base ---
+	db = lancedb.connect(db_ruta)
+	print(f"[OK] LanceDB conectado en '{db_ruta}'. Tablas existentes: {db.list_tables()}")
+	return db
 
 
 if __name__ == "__main__":
-	main()
+	# main()
+	_abrir_lancedb(INDICE_DIR)

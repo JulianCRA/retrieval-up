@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-indx = "indexador.__main__:main"
+indexar = "indexador.__main__:main"
 
 [tool.setuptools.package-dir]
 "" = "src"
