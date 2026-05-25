@@ -1,18 +1,37 @@
 import argparse
 import sys
-import time
 
 import numpy as np
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
 from compartido.utils import crear_perfil_hardware, cronometrar
+from compartido.embedders import (
+	cargar_sentence_transformer,
+	get_spec,
+	listar_ids,
+)
 
-from vectorizador.prefijos import prefijos_para
+
+@cronometrar(etiqueta="Carga modelo")
+def cargar_modelo(embedder_id: str, device: str):
+	return cargar_sentence_transformer(embedder_id, device=device)
 
 
-MODELOS_DIR = DESCARGAS_DIR / "modelos" / "embeddings"
-MODELOS_DIR.mkdir(parents=True, exist_ok=True)
+@cronometrar(etiqueta="Inferencia embeddings")
+def vectorizar_textos(
+	model,
+	textos: list[str],
+	batch_size: int,
+	normalizar: bool,
+) -> np.ndarray:
+	return model.encode(
+		textos,
+		batch_size=batch_size,
+		show_progress_bar=True,
+		convert_to_numpy=True,
+		normalize_embeddings=normalizar,
+	).astype(np.float32)
 
 
 def main():
@@ -26,9 +45,10 @@ def main():
 		help="Hash del contenido dentro de descargas/",
 	)
 	parser.add_argument(
-		"--modelo",
+		"--embedder",
 		default=None,
-		help="HF id del modelo de embeddings. Por defecto se toma 'embedder_hf_id' de fragmentos.json.",
+		choices=listar_ids(),
+		help="Id corto del modelo de embeddings. Por defecto se toma 'embedder_objetivo' de fragmentos.json.",
 	)
 	parser.add_argument(
 		"--batch-size",
@@ -38,34 +58,26 @@ def main():
 		help="Tamano de batch para encode (default: 16).",
 	)
 	parser.add_argument(
-		"--device",
-		default=None,
-		help="Dispositivo torch (cpu, cuda, mps). Por defecto se autodetecta.",
-	)
-	parser.add_argument(
-		"--normalizar",
-		action="store_true",
-		default=True,
-		help="Normalizar embeddings a norma 1 (default: True; permite usar producto punto como coseno).",
+		"--sin-normalizar",
+		action="store_false",
+		dest="normalizar",
+		help="No normalizar embeddings (por defecto se normalizan a norma 1).",
 	)
 
 	args = parser.parse_args()
 
 	procesar_hash(
 		args.hash,
-		modelo=args.modelo,
+		embedder=args.embedder,
 		batch_size=args.batch_size,
-		device=args.device,
 		normalizar=args.normalizar,
 	)
 
 
-@cronometrar(etiqueta="Vectorizacion total")
 def procesar_hash(
 	hash_id: str,
-	modelo: str | None = None,
+	embedder: str | None = None,
 	batch_size: int = 16,
-	device: str | None = None,
 	normalizar: bool = True,
 ):
 	folder = DESCARGAS_DIR / hash_id
@@ -81,52 +93,31 @@ def procesar_hash(
 		print(f"[ERROR] No hay fragmentos en '{fragmentos_path}'.")
 		sys.exit(1)
 
-	hf_id = modelo or data.get("embedder_hf_id")
-	if not hf_id:
-		print("[ERROR] No se especifico --modelo y fragmentos.json no trae 'embedder_hf_id'.")
+	embedder_id = embedder or data.get("embedder_objetivo")
+	if not embedder_id:
+		print("[ERROR] No se especifico --embedder y fragmentos.json no trae 'embedder_objetivo'.")
 		sys.exit(1)
 
-	if device is None:
-		device = crear_perfil_hardware()["device"]
-
-	prefijo_passage, prefijo_query = prefijos_para(hf_id)
+	spec = get_spec(embedder_id)
+	device = crear_perfil_hardware()["device"]
 
 	print(f"[OK] Fragmentos cargados desde '{fragmentos_path}'.")
-	print(f"[INFO] Modelo: {hf_id}")
+	print(f"[INFO] Embedder: {spec.id_corto} ({spec.hf_id})")
+	print(f"[INFO] Dim: {spec.dim} | max_seq_len: {spec.max_seq_len}")
 	print(f"[INFO] Device: {device} | batch_size: {batch_size} | normalizar: {normalizar}")
 	print(f"[INFO] Fragmentos a vectorizar: {len(fragmentos)}")
-	if prefijo_passage:
-		print(f"[INFO] Prefijo passage: {prefijo_passage!r}")
+	if spec.prefijo_passage:
+		print(f"[INFO] Prefijo passage: {spec.prefijo_passage!r}")
 
-	textos = [prefijo_passage + f["texto"] for f in fragmentos]
+	textos = [spec.prefijo_passage + f["texto"] for f in fragmentos]
 
-	# Carga del modelo
-	from sentence_transformers import SentenceTransformer  # import perezoso
-
-	t0 = time.perf_counter()
-	st_kwargs: dict = {"cache_folder": str(MODELOS_DIR), "device": device}
-	# jina-v3 requiere trust_remote_code; tolerar otros sin esa necesidad
-	if "jina" in hf_id.lower():
-		st_kwargs["trust_remote_code"] = True
-	model = SentenceTransformer(hf_id, **st_kwargs)
-	tiempo_carga = round(time.perf_counter() - t0, 2)
-	print(f"[TIEMPO] Carga modelo: {tiempo_carga:.2f}s")
-
-	# Inferencia
-	t0 = time.perf_counter()
-	embeddings = model.encode(
-		textos,
-		batch_size=batch_size,
-		show_progress_bar=True,
-		convert_to_numpy=True,
-		normalize_embeddings=normalizar,
-	).astype(np.float32)
-	tiempo_inferencia = round(time.perf_counter() - t0, 2)
-	print(f"[TIEMPO] Inferencia ({len(textos)} fragmentos): {tiempo_inferencia:.2f}s")
+	model = cargar_modelo(embedder_id, device)
+	embeddings = vectorizar_textos(model, textos, batch_size, normalizar)
 
 	dim = int(embeddings.shape[1])
+	if dim != spec.dim:
+		print(f"[ADVERTENCIA] Dim real ({dim}) != dim del registro ({spec.dim}).")
 
-	# Guardado binario (vectores.npz)
 	vectores_npz = folder / "vectores.npz"
 	np.savez_compressed(
 		vectores_npz,
@@ -135,18 +126,18 @@ def procesar_hash(
 	)
 	print(f"[OK] Embeddings guardados en '{vectores_npz}' ({embeddings.nbytes / 1024:.1f} KB en RAM).")
 
-	# Metadatos (vectores.json)
 	resultado_meta = {
-		"modelo": hf_id,
+		"embedder": spec.id_corto,
+		"embedder_hf_id": spec.hf_id,
 		"dim": dim,
 		"num_vectores": len(fragmentos),
 		"normalizado": normalizar,
-		"prefijo_passage": prefijo_passage,
-		"prefijo_query": prefijo_query,
+		"prefijo_passage": spec.prefijo_passage,
+		"prefijo_query": spec.prefijo_query,
 		"device": device,
 		"batch_size": batch_size,
-		"tiempo_carga_modelo": tiempo_carga,
-		"tiempo_inferencia": tiempo_inferencia,
+		"tiempo_carga_modelo": round(cargar_modelo.elapsed, 2),
+		"tiempo_inferencia": round(vectorizar_textos.elapsed, 2),
 		"archivo_vectores": vectores_npz.name,
 		"fragmentos_origen": fragmentos_path.name,
 	}
