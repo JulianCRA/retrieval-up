@@ -8,8 +8,11 @@ version = "0.1.0"
 description = "Fragmenta el texto corregido en chunks para su vectorizacion."
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    "sentence-transformers>=3.0",
+    "compartido",
+    "sentence-transformers>=3.0,<4.0",
+    "transformers>=4.40,<5.0",
     "numpy>=1.24",
+    "einops>=0.7",
 ]
 
 [project.scripts]
