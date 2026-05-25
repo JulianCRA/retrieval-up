@@ -39,6 +39,14 @@ def esquema(dim: int) -> pa.Schema:
 	])
 
 
+def hash_indexado(db: lancedb.DBConnection, nombre: str, hash_id: str) -> bool:
+	"""Devuelve True si el hash ya tiene filas en la tabla."""
+	if nombre not in _listar(db):
+		return False
+	tabla = db.open_table(nombre)
+	return tabla.count_rows(f"hash = '{hash_id}'") > 0
+
+
 def escribir_tabla(
 	db: lancedb.DBConnection,
 	nombre: str,

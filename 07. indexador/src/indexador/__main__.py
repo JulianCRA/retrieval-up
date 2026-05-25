@@ -192,6 +192,12 @@ def _procesar_hash(
 		print(f"[ERROR] 'dim' invalido en '{vectores_meta_path}'.")
 		sys.exit(1)
 
+	# --- Deduplicacion ---
+	nombre_tabla = tabla or embedder_id
+	if not reclear and lance.hash_indexado(db, nombre_tabla, hash_id):
+		print(f"[SKIP] hash={hash_id} ya indexado en tabla '{nombre_tabla}'. Usar --recrear para reindexar.")
+		return
+
 	try:
 		npz = np.load(vectores_npz_path)
 	except FileNotFoundError:
@@ -231,7 +237,7 @@ def _procesar_hash(
 		sys.exit(1)
 
 	# --- LanceDB: construir filas y escribir ---
-	nombre_tabla = tabla or embedder_id
+	# nombre_tabla ya definido arriba
 	tags_json = json.dumps(tags, ensure_ascii=False)
 
 	filas = []
