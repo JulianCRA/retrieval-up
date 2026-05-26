@@ -1,4 +1,10 @@
-"""Capa fina sobre LanceDB: abrir base, definir esquema y escribir filas."""
+"""Backend LanceDB: implementa la interfaz de indexacion para una base local embebida.
+
+Interfaz que todo backend debe exponer:
+  abrir(db_ruta: str) -> Any
+  hash_indexado(db, nombre: str, hash_id: str) -> bool
+  escribir_tabla(db, nombre: str, filas: list[dict], dim: int, reclear: bool) -> None
+"""
 import sys
 
 import lancedb

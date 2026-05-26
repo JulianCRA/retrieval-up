@@ -9,11 +9,12 @@ from compartido.rutas import DESCARGAS_DIR
 from compartido.embedders import listar_ids
 from compartido.utils import cronometrar
 
-from indexador import lance
+import importlib
+
 from indexador.bm25 import tokenizar, tokens_a_texto
 
 
-# Directorio por defecto del indice LanceDB.
+# Directorio por defecto del indice (default de --db para el backend lance).
 INDICE_DIR = DESCARGAS_DIR / "indice"
 
 
@@ -36,7 +37,7 @@ def main():
 	parser = argparse.ArgumentParser(
 		prog="indexador",
 		description=(
-			"Indexa fragmentos + embeddings en una base LanceDB local. "
+			"Indexa fragmentos + embeddings en un indice hibrido. "
 			"Soporta busqueda densa, BM25 y hibrida."
 		),
 	)
@@ -62,10 +63,19 @@ def main():
 
 	# --- indice ---
 	parser.add_argument(
+		"--backend",
+		default="lance",
+		choices=["lance"],
+		help="Backend de indexacion (default: lance).",
+	)
+	parser.add_argument(
 		"--db",
 		default=str(INDICE_DIR),
-		metavar="RUTA",
-		help=f"Ruta al directorio LanceDB (default: {INDICE_DIR}).",
+		metavar="URI",
+		help=(
+			f"URI o ruta del backend. "
+			f"Para 'lance': ruta al directorio local (default: {INDICE_DIR})."
+		),
 	)
 	parser.add_argument(
 		"--tabla",
@@ -107,6 +117,7 @@ def main():
 		tabla=args.tabla,
 		reclear=args.recrear,
 		tags=tags,
+		backend=args.backend,
 	)
 
 
@@ -117,12 +128,15 @@ def procesar(
 	tabla: str | None,
 	reclear: bool,
 	tags: dict[str, str],
+	backend: str = "lance",
 ):
-	db = lance.abrir(db_ruta)
+	mod = importlib.import_module(f"indexador.{backend}")
+	db = mod.abrir(db_ruta)
 	for hash_id in hashes:
 		_procesar_hash(
 			hash_id,
 			db=db,
+			backend_mod=mod,
 			embedder=embedder,
 			tabla=tabla,
 			reclear=reclear,
@@ -148,6 +162,7 @@ def _tokenizar_segmentos(fragmentos: list[dict]) -> list[list[list[str]]]:
 def _procesar_hash(
 	hash_id: str,
 	db,
+	backend_mod,
 	embedder: str | None,
 	tabla: str | None,
 	reclear: bool,
@@ -202,7 +217,7 @@ def _procesar_hash(
 
 	# --- Deduplicacion ---
 	nombre_tabla = tabla or embedder_id
-	if not reclear and lance.hash_indexado(db, nombre_tabla, hash_id):
+	if not reclear and backend_mod.hash_indexado(db, nombre_tabla, hash_id):
 		print(f"[SKIP] hash={hash_id} ya indexado en tabla '{nombre_tabla}'. Usar --recrear para reindexar.")
 		return
 
@@ -280,7 +295,7 @@ def _procesar_hash(
 			"vector": embeddings[i].tolist(),
 		})
 
-	lance.escribir_tabla(db, nombre_tabla, filas, dim=dim, reclear=reclear)
+	backend_mod.escribir_tabla(db, nombre_tabla, filas, dim=dim, reclear=reclear)
 
 
 if __name__ == "__main__":
