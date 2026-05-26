@@ -18,7 +18,10 @@ def main():
 	parser.add_argument(
 		"--hash",
 		required=True,
-		help="Hash del contenido dentro de descargas/",
+		action="append",
+		dest="hashes",
+		metavar="HASH",
+		help="Hash a fragmentar. Repetir para procesar varios en un solo comando.",
 	)
 	parser.add_argument(
 		"--embedder",
@@ -90,8 +93,8 @@ def main():
 	if args.min_tokens is None:
 		args.min_tokens = 64
 
-	procesar_hash(
-		args.hash,
+	procesar(
+		hashes=args.hashes,
 		embedder=args.embedder,
 		chunk_tokens=args.chunk_tokens,
 		estrategia=args.estrategia,
@@ -102,10 +105,42 @@ def main():
 	)
 
 
-def procesar_hash(
-	hash_id: str,
+def procesar(
+	hashes: list[str],
 	embedder: str,
 	chunk_tokens: int | None = None,
+	estrategia: str = "tamano_fijo",
+	overlap_pct: int = 20,
+	umbral: float = 0.5,
+	min_tokens: int = 64,
+	boundary_embedder: str | None = None,
+):
+	spec = get_spec(embedder)
+	sizer = Sizer(embedder, chunk_tokens=chunk_tokens)
+
+	print(f"[INFO] Estrategia: {estrategia}")
+	print(f"[INFO] Embedder objetivo: {spec.id_corto} ({spec.hf_id})")
+	print(f"[INFO] Chunk maximo: {sizer.chunk_max} tokens reales (max_seq_len={spec.max_seq_len})")
+
+	for hash_id in hashes:
+		_procesar_hash(
+			hash_id,
+			spec=spec,
+			sizer=sizer,
+			embedder=embedder,
+			estrategia=estrategia,
+			overlap_pct=overlap_pct,
+			umbral=umbral,
+			min_tokens=min_tokens,
+			boundary_embedder=boundary_embedder,
+		)
+
+
+def _procesar_hash(
+	hash_id: str,
+	spec,
+	sizer: "Sizer",
+	embedder: str,
 	estrategia: str = "tamano_fijo",
 	overlap_pct: int = 20,
 	umbral: float = 0.5,
@@ -125,15 +160,9 @@ def procesar_hash(
 		print(f"[ERROR] No se encontraron transcripciones en '{correcciones_path}'.")
 		sys.exit(1)
 
-	spec = get_spec(embedder)
-	sizer = Sizer(embedder, chunk_tokens=chunk_tokens)
-
-	print(f"[OK] Correcciones cargadas desde '{correcciones_path}'.")
+	print(f"[OK] Correcciones cargadas desde '{correcciones_path}' (hash={hash_id})")
 	print(f"[INFO] Modelo corrector: {data.get('modelo_corrector', 'desconocido')}")
 	print(f"[INFO] Segmentos disponibles: {len(transcripciones)}")
-	print(f"[INFO] Estrategia: {estrategia}")
-	print(f"[INFO] Embedder objetivo: {spec.id_corto} ({spec.hf_id})")
-	print(f"[INFO] Chunk maximo: {sizer.chunk_max} tokens reales (max_seq_len={spec.max_seq_len})")
 
 	resultado_base = {
 		"estrategia": estrategia,
