@@ -2,8 +2,10 @@ import argparse
 import sys
 
 from compartido import json_utils as ju
-from compartido.embedders import EMBEDDERS, Sizer, get_spec, listar_ids
+from compartido.embedders import EMBEDDERS, Sizer, cargar_sentence_transformer, get_spec, listar_ids
 from compartido.rutas import DESCARGAS_DIR
+import time
+
 from compartido.utils import crear_perfil_hardware
 
 from fragmentador.tamano_fijo import fragmentar as fragmentar_fijo
@@ -122,6 +124,19 @@ def procesar(
 	print(f"[INFO] Embedder objetivo: {spec.id_corto} ({spec.hf_id})")
 	print(f"[INFO] Chunk maximo: {sizer.chunk_max} tokens reales (max_seq_len={spec.max_seq_len})")
 
+	# Para la estrategia semantica, cargar el modelo de boundary UNA sola vez.
+	boundary_model = None
+	device = "cpu"
+	if estrategia == "semantico":
+		perfil = crear_perfil_hardware()
+		device = perfil["device"]
+		boundary_id = boundary_embedder or embedder
+		print(f"[INFO] Modelo de boundary: {boundary_id} (device={device})")
+		print(f"[INFO] Umbral de corte: {umbral} | min_tokens={min_tokens}")
+		_t0 = time.perf_counter()
+		boundary_model = cargar_sentence_transformer(boundary_id, device)
+		print(f"[TIEMPO] Carga modelo boundary ({boundary_id}): {time.perf_counter() - _t0:.2f}s")
+
 	for hash_id in hashes:
 		_procesar_hash(
 			hash_id,
@@ -133,6 +148,8 @@ def procesar(
 			umbral=umbral,
 			min_tokens=min_tokens,
 			boundary_embedder=boundary_embedder,
+			boundary_model=boundary_model,
+			device=device,
 		)
 
 
@@ -146,6 +163,8 @@ def _procesar_hash(
 	umbral: float = 0.5,
 	min_tokens: int = 64,
 	boundary_embedder: str | None = None,
+	boundary_model=None,
+	device: str = "cpu",
 ):
 	folder = DESCARGAS_DIR / hash_id
 	correcciones_path = folder / "correcciones.json"
@@ -187,11 +206,7 @@ def _procesar_hash(
 			"tiempo_fragmentacion": tiempo_total,
 		}
 	else:  # semantico
-		perfil = crear_perfil_hardware()
-		device = perfil["device"]
 		boundary_id = boundary_embedder or embedder
-		print(f"[INFO] Modelo de boundary: {boundary_id} (device={device})")
-		print(f"[INFO] Umbral de corte: {umbral} | min_tokens={min_tokens}")
 		out = fragmentar_semantico(
 			transcripciones,
 			sizer=sizer,
@@ -199,6 +214,7 @@ def _procesar_hash(
 			min_tokens=min_tokens,
 			boundary_embedder=boundary_id,
 			device=device,
+			model=boundary_model,
 		)
 		fragmentos = out["fragmentos"]
 		tiempo_total = round(fragmentar_semantico.elapsed, 2)

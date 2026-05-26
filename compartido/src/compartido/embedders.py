@@ -194,10 +194,25 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	"""Carga el modelo como SentenceTransformer (para boundary detection / vectorizacion).
 	Import perezoso para que el solo conteo de tokens no requiera torch.
 	"""
+	import logging
 	from sentence_transformers import SentenceTransformer
 
 	spec = get_spec(embedder_id)
 	kwargs: dict = {"cache_folder": str(MODELOS_DIR), "device": device}
 	if spec.trust_remote_code:
 		kwargs["trust_remote_code"] = True
-	return SentenceTransformer(spec.hf_id, **kwargs)
+
+	# Suprimir mensajes de advertencia ruidosos de las librerias subyacentes
+	# (p.ej. "flash_attn is not installed") durante la carga del modelo.
+	_loggers = [
+		logging.getLogger(name)
+		for name in ("transformers", "sentence_transformers", "torch")
+	]
+	_prev_levels = [lg.level for lg in _loggers]
+	for lg in _loggers:
+		lg.setLevel(logging.ERROR)
+	try:
+		return SentenceTransformer(spec.hf_id, **kwargs)
+	finally:
+		for lg, lvl in zip(_loggers, _prev_levels):
+			lg.setLevel(lvl)

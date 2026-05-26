@@ -24,11 +24,14 @@ def fragmentar(
 	min_tokens: int = 64,
 	boundary_embedder: str | None = None,
 	device: str = "cpu",
+	model=None,
 ) -> dict:
 	"""Devuelve un dict con:
 	  - fragmentos: list[dict]
 	  - boundary_hf_id: str
 	  - tiempos: {"carga_modelo": float, "inferencia": float}
+
+	Si `model` se proporciona ya cargado, se omite la carga (tiempo_carga=0).
 	"""
 	vacio = {"fragmentos": [], "boundary_hf_id": "",
 	         "tiempos": {"carga_modelo": 0.0, "inferencia": 0.0}}
@@ -42,11 +45,15 @@ def fragmentar(
 	boundary_id = boundary_embedder or sizer.spec.id_corto
 	boundary_spec = get_spec(boundary_id)
 
-	# 1) Carga del modelo
-	t0 = time.perf_counter()
-	modelo = cargar_sentence_transformer(boundary_id, device=device)
-	tiempo_carga = round(time.perf_counter() - t0, 2)
-	print(f"[TIEMPO] Carga modelo boundary ({boundary_id}): {tiempo_carga:.2f}s")
+	# 1) Carga del modelo (solo si no se paso uno pre-cargado)
+	if model is None:
+		t0 = time.perf_counter()
+		modelo = cargar_sentence_transformer(boundary_id, device=device)
+		tiempo_carga = round(time.perf_counter() - t0, 2)
+		print(f"[TIEMPO] Carga modelo boundary ({boundary_id}): {tiempo_carga:.2f}s")
+	else:
+		modelo = model
+		tiempo_carga = 0.0
 
 	# 2) Inferencia (encode de todos los segmentos)
 	textos_emb = [boundary_spec.prefijo_passage + s.get("texto", "") for s in segmentos]
