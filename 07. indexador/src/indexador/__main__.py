@@ -65,7 +65,7 @@ def main():
 	parser.add_argument(
 		"--backend",
 		default="lance",
-		choices=["lance"],
+		choices=["lance", "qdrant", "milvus"],
 		help="Backend de indexacion (default: lance).",
 	)
 	parser.add_argument(
