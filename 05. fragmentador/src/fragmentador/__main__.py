@@ -240,10 +240,26 @@ def _procesar_hash(
 	fragmentos_path = folder / "fragmentos.json"
 	if ju.guardar_archivo(fragmentos_path, resultado):
 		print(f"[OK] Fragmentos guardados en '{fragmentos_path}'.")
+		_guardar_historial(folder, spec.id_corto, resultado)
 		return
 
 	print(f"[ERROR] No se pudo guardar '{fragmentos_path}'.")
 	sys.exit(1)
+
+
+def _guardar_historial(folder, embedder_id: str, resultado: dict):
+	"""Copia el resultado en _frag_history/{NNN}_{modelo}_f{num}.json."""
+	hist_dir = folder / "_frag_history"
+	hist_dir.mkdir(exist_ok=True)
+
+	# Siguiente numero de secuencia (basado en archivos .json existentes).
+	existentes = sorted(hist_dir.glob("*.json"))
+	siguiente = len(existentes) + 1
+	nombre = f"{siguiente:03d}_{embedder_id}_f{resultado['num_fragmentos']}.json"
+
+	hist_path = hist_dir / nombre
+	if ju.guardar_archivo(hist_path, resultado):
+		print(f"[OK] Historial guardado en '{hist_path}'.")
 
 
 if __name__ == "__main__":
