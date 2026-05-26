@@ -45,13 +45,19 @@ def main():
 	parser.add_argument(
 		"--hash",
 		required=True,
-		help="Hash del contenido dentro de descargas/",
+		action="append",
+		dest="hashes",
+		metavar="HASH",
+		help="Hash a vectorizar. Repetir para procesar varios en un solo comando.",
 	)
 	parser.add_argument(
 		"--embedder",
 		default=None,
 		choices=listar_ids(),
-		help="Id corto del modelo de embeddings. Por defecto se toma 'embedder_objetivo' de fragmentos.json.",
+		help=(
+			"Id corto del modelo de embeddings. Por defecto se toma 'embedder_objetivo' de fragmentos.json. "
+			"Todos los hashes de un mismo comando deben compartir el mismo embedder."
+		),
 	)
 	parser.add_argument(
 		"--batch-size",
@@ -69,19 +75,59 @@ def main():
 
 	args = parser.parse_args()
 
-	procesar_hash(
-		args.hash,
+	procesar(
+		hashes=args.hashes,
 		embedder=args.embedder,
 		batch_size=args.batch_size,
 		normalizar=args.normalizar,
 	)
 
 
-def procesar_hash(
-	hash_id: str,
+def procesar(
+	hashes: list[str],
 	embedder: str | None = None,
 	batch_size: int = 16,
 	normalizar: bool = True,
+):
+	# Determinar embedder desde el primer hash si no se paso por CLI.
+	embedder_id = embedder
+	if not embedder_id:
+		first_data = ju.cargar_archivo(DESCARGAS_DIR / hashes[0] / "fragmentos.json")
+		if first_data:
+			embedder_id = first_data.get("embedder_objetivo")
+	if not embedder_id:
+		print("[ERROR] No se especifico --embedder y fragmentos.json no trae 'embedder_objetivo'.")
+		sys.exit(1)
+
+	spec = get_spec(embedder_id)
+	device = crear_perfil_hardware()["device"]
+
+	print(f"[INFO] Embedder: {spec.id_corto} ({spec.hf_id})")
+	print(f"[INFO] Dim: {spec.dim} | max_seq_len: {spec.max_seq_len}")
+	print(f"[INFO] Device: {device} | batch_size: {batch_size} | normalizar: {normalizar}")
+
+	model = cargar_modelo(embedder_id, device)
+
+	for hash_id in hashes:
+		_procesar_hash(
+			hash_id,
+			model=model,
+			spec=spec,
+			embedder_id=embedder_id,
+			batch_size=batch_size,
+			normalizar=normalizar,
+			device=device,
+		)
+
+
+def _procesar_hash(
+	hash_id: str,
+	model,
+	spec,
+	embedder_id: str,
+	batch_size: int = 16,
+	normalizar: bool = True,
+	device: str = "cpu",
 ):
 	folder = DESCARGAS_DIR / hash_id
 	fragmentos_path = folder / "fragmentos.json"
@@ -96,18 +142,7 @@ def procesar_hash(
 		print(f"[ERROR] No hay fragmentos en '{fragmentos_path}'.")
 		sys.exit(1)
 
-	embedder_id = embedder or data.get("embedder_objetivo")
-	if not embedder_id:
-		print("[ERROR] No se especifico --embedder y fragmentos.json no trae 'embedder_objetivo'.")
-		sys.exit(1)
-
-	spec = get_spec(embedder_id)
-	device = crear_perfil_hardware()["device"]
-
-	print(f"[OK] Fragmentos cargados desde '{fragmentos_path}'.")
-	print(f"[INFO] Embedder: {spec.id_corto} ({spec.hf_id})")
-	print(f"[INFO] Dim: {spec.dim} | max_seq_len: {spec.max_seq_len}")
-	print(f"[INFO] Device: {device} | batch_size: {batch_size} | normalizar: {normalizar}")
+	print(f"[OK] Fragmentos cargados desde '{fragmentos_path}' (hash={hash_id})")
 	print(f"[INFO] Fragmentos a vectorizar: {len(fragmentos)}")
 	if spec.prefijo_passage:
 		print(f"[INFO] Prefijo passage: {spec.prefijo_passage!r}")
@@ -116,7 +151,6 @@ def procesar_hash(
 
 	textos = [spec.prefijo_passage + f["texto"] for f in fragmentos]
 
-	model = cargar_modelo(embedder_id, device)
 	embeddings = vectorizar_textos(model, textos, batch_size, normalizar, tarea=spec.tarea_passage)
 
 	dim = int(embeddings.shape[1])
