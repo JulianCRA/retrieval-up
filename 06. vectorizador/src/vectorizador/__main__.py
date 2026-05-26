@@ -24,14 +24,17 @@ def vectorizar_textos(
 	textos: list[str],
 	batch_size: int,
 	normalizar: bool,
+	tarea: str = "",
 ) -> np.ndarray:
-	return model.encode(
-		textos,
-		batch_size=batch_size,
-		show_progress_bar=True,
-		convert_to_numpy=True,
-		normalize_embeddings=normalizar,
-	).astype(np.float32)
+	kwargs: dict = {
+		"batch_size": batch_size,
+		"show_progress_bar": True,
+		"convert_to_numpy": True,
+		"normalize_embeddings": normalizar,
+	}
+	if tarea:
+		kwargs["task"] = tarea
+	return model.encode(textos, **kwargs).astype(np.float32)
 
 
 def main():
@@ -108,11 +111,13 @@ def procesar_hash(
 	print(f"[INFO] Fragmentos a vectorizar: {len(fragmentos)}")
 	if spec.prefijo_passage:
 		print(f"[INFO] Prefijo passage: {spec.prefijo_passage!r}")
+	if spec.tarea_passage:
+		print(f"[INFO] Tarea passage: {spec.tarea_passage!r}")
 
 	textos = [spec.prefijo_passage + f["texto"] for f in fragmentos]
 
 	model = cargar_modelo(embedder_id, device)
-	embeddings = vectorizar_textos(model, textos, batch_size, normalizar)
+	embeddings = vectorizar_textos(model, textos, batch_size, normalizar, tarea=spec.tarea_passage)
 
 	dim = int(embeddings.shape[1])
 	if dim != spec.dim:
@@ -134,6 +139,8 @@ def procesar_hash(
 		"normalizado": normalizar,
 		"prefijo_passage": spec.prefijo_passage,
 		"prefijo_query": spec.prefijo_query,
+		"tarea_passage": spec.tarea_passage,
+		"tarea_query": spec.tarea_query,
 		"device": device,
 		"batch_size": batch_size,
 		"tiempo_carga_modelo": round(cargar_modelo.elapsed, 2),
