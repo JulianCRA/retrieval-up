@@ -26,6 +26,8 @@ class EmbedderSpec:
 	dim: int                  # dimension del vector de salida
 	prefijo_passage: str = "" # prefijo obligatorio en indexacion (passages)
 	prefijo_query: str = ""   # prefijo obligatorio en consulta (queries)
+	tarea_passage: str = ""   # task= kwarg para encode() en indexacion (jina-v3 y similares)
+	tarea_query: str = ""     # task= kwarg para encode() en consulta (jina-v3 y similares)
 	trust_remote_code: bool = False
 	notas: str = ""
 
@@ -38,6 +40,10 @@ EMBEDDERS: dict[str, EmbedderSpec] = {
 		max_seq_len=32768,
 		chunk_default=1024,
 		dim=1024,
+		prefijo_query = (
+			"Instruct: Match the search query with relevant passages\n"
+			"Query: "
+		),
 		notas=(
 			"Fuerte: top de MTEB multilingue, espanol muy solido, ventana enorme (32k). "
 			"Debil: ~1.2GB en disco, ~2-3GB de RAM en inferencia, lento en CPU "
@@ -65,6 +71,10 @@ EMBEDDERS: dict[str, EmbedderSpec] = {
 		max_seq_len=512,
 		chunk_default=480,
 		dim=1024,
+		prefijo_query=(
+			"Instruct: Retrieve semantically relevant passages for the search query in Spanish\n"
+			"Query: "
+		),
 		notas=(
 			"Fuerte: muy buena calidad en espanol/EN, instruct (acepta instrucciones "
 			"por tarea en el query). 1024-dim. "
@@ -94,6 +104,8 @@ EMBEDDERS: dict[str, EmbedderSpec] = {
 		max_seq_len=8192,
 		chunk_default=1024,
 		dim=1024,
+		tarea_passage="retrieval.passage",
+		tarea_query="retrieval.query",
 		trust_remote_code=True,
 		notas=(
 			"Fuerte: muy fuerte en lenguas romances (espanol top), ventana 8k, "
