@@ -57,13 +57,15 @@ def fragmentar(
 
 	# 2) Inferencia (encode de todos los segmentos)
 	textos_emb = [boundary_spec.prefijo_passage + s.get("texto", "") for s in segmentos]
+	encode_kwargs: dict = {
+		"show_progress_bar": True,
+		"convert_to_numpy": True,
+		"normalize_embeddings": True,
+	}
+	if boundary_spec.tarea_passage:
+		encode_kwargs["task"] = boundary_spec.tarea_passage
 	t0 = time.perf_counter()
-	embeddings = modelo.encode(
-		textos_emb,
-		show_progress_bar=False,
-		convert_to_numpy=True,
-		normalize_embeddings=True,
-	)
+	embeddings = modelo.encode(textos_emb, **encode_kwargs)
 	tiempo_inferencia = round(time.perf_counter() - t0, 2)
 	print(f"[TIEMPO] Inferencia boundary ({len(segmentos)} segmentos): {tiempo_inferencia:.2f}s")
 
