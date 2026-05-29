@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "indexador"
+version = "0.1.0"
+description = "Construye el indice hibrido (denso + BM25) a partir de embeddings y fragmentos."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+	"compartido",
+	"lancedb>=0.14",
+	"pyarrow>=17.0",
+	"tantivy>=0.22",
+	"numpy>=1.24",
+	"spacy>=3.0",
+	"es-core-news-lg @ https://github.com/explosion/spacy-models/releases/download/es_core_news_lg-3.8.0/es_core_news_lg-3.8.0-py3-none-any.whl",
+]
+
+[project.scripts]
+indexar = "indexador.__main__:main"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]

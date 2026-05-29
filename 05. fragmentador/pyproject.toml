@@ -3,14 +3,20 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "compartido"
+name = "fragmentador"
 version = "0.1.0"
-description = "Datos compartidos y funciones auxiliares para manipulación de archivos JSON"
+description = "Fragmenta el texto corregido en chunks para su vectorizacion."
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    "psutil>=5.9",
+    "compartido",
+    "sentence-transformers>=3.0,<4.0",
     "transformers>=4.40,<5.0",
+    "numpy>=1.24",
+    "einops>=0.7",
 ]
+
+[project.scripts]
+frag = "fragmentador.__main__:main"
 
 [tool.setuptools.package-dir]
 "" = "src"

@@ -1,10 +1,9 @@
 import argparse
 import sys
-from pathlib import Path
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
-from compartido.utils import cronometrar
+from compartido.utils import cronometrar, crear_perfil_hardware
 
 from .texto import INFO
 
@@ -13,7 +12,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         prog = "transcriptor",
-        description = "Procesa segementosde audio para transcribirlos a texto utilizando modelos de ASR.",
+        description = "Procesa segmentos de audio para transcribirlos a texto utilizando modelos de ASR.",
         epilog = info_asr,
         formatter_class = argparse.RawDescriptionHelpFormatter
     )
@@ -27,14 +26,14 @@ def main():
     grupo = parser.add_mutually_exclusive_group()
     grupo.add_argument(
         "-m", "--modelo",
-        help = "Escoger el modelo de transcripción automática (ASR) para convertir audio a texto [vosk|wac2vec|cohere|whisper|qwen]",
-        choices = ["vosk", "wac2vec", "cohere", "whisper", "qwen"],
+        help = "Escoger el modelo de transcripción automática (ASR) para convertir audio a texto [vosk|cohere|whisper:small|whisper:base|whisper:turbo]",
+        choices = ["vosk", "cohere", "whisper:small", "whisper:base", "whisper:turbo"],
     )
 
     grupo.add_argument(
         "-i", "--info",
         help = "Mostrar información detallada sobre los modelos de ASR disponibles",
-        choices=["vosk", "wac2vec", "cohere", "whisper", "qwen"],
+        choices=["vosk", "cohere", "whisper"],
     )
 
     args = parser.parse_args()
@@ -67,7 +66,6 @@ def procesar_hash(hash, modelo="vosk"):
 
     obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo=modelo)
 
-@cronometrar
 def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo="vosk"):
     print(f"[INFO] Transcribiendo '{audio_path.name}' usando el modelo '{modelo}'...")
     paths = {
@@ -75,6 +73,41 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
         "segmentos": segmentos_path,
         "transcripciones": transcripciones_path
     }
+
     if modelo == "vosk":
         from .vosk_asr import transcribir_vosk
         transcribir_vosk(paths)
+        tiempo_transcripcion = round(transcribir_vosk.elapsed, 2)
+        duracion = audio_path.stat().st_size / (16000 * 2)  
+        rt_factor = round(tiempo_transcripcion / duracion, 2) if duracion > 0 else None
+        speed_up = round(1 / rt_factor, 2) if rt_factor > 0 else None
+        ju.guardar_nodos(paths["transcripciones"], {
+            "tiempo_transcripcion": tiempo_transcripcion,
+            "rt_factor": rt_factor,
+            "speed_up": str(speed_up) + "x" if speed_up is not None else None
+        })
+    elif modelo.startswith("whisper:"):
+        variante = modelo.split(":", 1)[1]
+        from .whisper_asr import transcribir_whisper
+        transcribir_whisper(paths, modelo=variante)
+        tiempo_transcripcion = round(transcribir_whisper.elapsed, 2)
+        duracion = audio_path.stat().st_size / (16000 * 2)
+        rt_factor = round(tiempo_transcripcion / duracion, 2) if duracion > 0 else None
+        speed_up = round(1 / rt_factor, 2) if rt_factor > 0 else None
+        ju.guardar_nodos(paths["transcripciones"], {
+            "tiempo_transcripcion": tiempo_transcripcion,
+            "rt_factor": rt_factor,
+            "speed_up": str(speed_up) + "x" if speed_up is not None else None
+        })
+    elif modelo == "cohere":
+        from .cohere_asr import transcribir_cohere
+        transcribir_cohere(paths)
+        tiempo_transcripcion = round(transcribir_cohere.elapsed, 2)
+        duracion = audio_path.stat().st_size / (16000 * 2)
+        rt_factor = round(tiempo_transcripcion / duracion, 2) if duracion > 0 else None
+        speed_up = round(1 / rt_factor, 2) if rt_factor > 0 else None
+        ju.guardar_nodos(paths["transcripciones"], {
+            "tiempo_transcripcion": tiempo_transcripcion,
+            "rt_factor": rt_factor,
+            "speed_up": str(speed_up) + "x" if speed_up is not None else None
+        })
