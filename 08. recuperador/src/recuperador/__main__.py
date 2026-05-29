@@ -62,10 +62,9 @@ def main():
 		print(f"Backend '{args.backend}' no soportado en esta version. haciendo fallback a 'lance'.")
 		args.backend = "lance"
 
-	# embed_query = obtener_embed_query(args.query, args.embedder)
-	# print(f"Embed de la query (size): {len(embed_query)}.")
-
-	buscar(args, "embed_query")
+	
+	embed_query = obtener_embed_query(args.query, args.embedder)
+	buscar(args, embed_query)
 
 
 		
@@ -84,26 +83,39 @@ def obtener_embed_query(query, embedder_id):
 	vector = vector.astype("float32").tolist()
 	return vector
 
-def buscar(args, embed_query):
-	query = args.query.strip()
-	modo = args.modo
-	peso = args.peso_denso
-	nombre_modelo = args.embedder
-
+def abrir_tabla(nombre):
 	db = lancedb.connect(INDICE_DIR)
 	tablas = list(db.list_tables().tables)
 
 	print(f"Tablas disponibles en el indice: {tablas}")
-	if nombre_modelo not in tablas:
-		print(f"Error: No se encontro una tabla para el embedder '{nombre_modelo}' en el indice.")
-		return
+	if nombre not in tablas:
+		print(f"Error: No se encontro una tabla para el embedder '{nombre}' en el indice.")
+		exit(1)
+		return None
 
-	tabla = db.open_table(nombre_modelo)
+	tabla = db.open_table(nombre)
 	if tabla.count_rows() == 0:
-		print(f"Error: La tabla para el embedder '{nombre_modelo}' esta vacia.")
-		return
+		print(f"Error: La tabla para el embedder '{nombre}' esta vacia.")
+		exit(1)
+		return None
 	
-	print(tabla.schema)
+	return tabla
+
+def buscar(args, embed_query):
+	query = args.query.strip()
+	top_k = args.top_k
+	modo = args.modo
+	peso = args.peso_denso
+	nombre_modelo = args.embedder
+
+	tabla = abrir_tabla(nombre_modelo)
+	filas = tabla.search(embed_query).limit(top_k).to_list()
+
+	print(f"Resultados para la consulta: '{query}' (modo: {modo}, peso denso: {peso}):")
+	for i, fila in enumerate(filas, start=1):
+		texto = fila["texto"]
+		sim = 1 - fila["_distance"]
+		print(f"{i}. (Similitud: {sim:.4f}) {texto[:500]}{'...' if len(texto) > 500 else ''}\n")
 	
 
 
