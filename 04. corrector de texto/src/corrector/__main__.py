@@ -15,7 +15,10 @@ def main():
 	parser.add_argument(
 		"--hash",
 		required=True,
-		help="Hash del contenido dentro de descargas/",
+		action="append",
+		dest="hashes",
+		metavar="HASH",
+		help="Hash a corregir. Repetir para procesar varios en un solo comando.",
 	)
 	parser.add_argument(
 		"--m",
@@ -25,14 +28,29 @@ def main():
 	)
 
 	args = parser.parse_args()
-	procesar_hash(args.hash, backend=args.m)
+	procesar(args.hashes, backend=args.m)
+
+
+def procesar(hashes: list[str], backend: str = "silero"):
+	# Pre-load model once before the loop.
+	apply_te = None
+	if backend == "silero":
+		import torch
+		from corrector.silero import cargar_silero_te
+		apply_te = cargar_silero_te()
+	elif backend == "p-all":
+		from corrector.p_all import _cargar
+		_cargar()  # warm up global cache
+
+	for hash_id in hashes:
+		procesar_hash(hash_id, backend=backend, apply_te=apply_te)
 
 
 def _texto_desde_segmentos(segmentos: list[dict]) -> str:
 	return " ".join(seg.get("texto", "") for seg in segmentos).strip()
 
 
-def procesar_hash(hash_id: str, backend: str = "silero"):
+def procesar_hash(hash_id: str, backend: str = "silero", apply_te=None):
 	folder = DESCARGAS_DIR / hash_id
 	transcripciones_path = folder / "transcripciones.json"
 	correcciones_path = folder / "correcciones.json"
@@ -84,8 +102,9 @@ def procesar_hash(hash_id: str, backend: str = "silero"):
 		tiempo_correccion = round(_procesar_p_all.elapsed, 2)
 	else:
 		import torch
-		from corrector.silero import cargar_silero_te
-		apply_te = cargar_silero_te()
+		if apply_te is None:
+			from corrector.silero import cargar_silero_te
+			apply_te = cargar_silero_te()
 		@cronometrar(etiqueta="Procesamiento silero_te")
 		def _procesar_silero():
 			return apply_te(texto, lan="es")
