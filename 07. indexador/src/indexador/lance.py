@@ -87,7 +87,7 @@ def escribir_tabla(
 	_crear_indice_fts(tabla)
 
 
-ANN_MIN_FILAS = 256
+ANN_MIN_FILAS = 50000
 
 
 def _crear_indice_ann(tabla):
