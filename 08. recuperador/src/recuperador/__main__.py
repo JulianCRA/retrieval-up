@@ -3,6 +3,7 @@ import argparse
 from compartido.embedders import listar_ids, cargar_sentence_transformer, listar_ids, get_spec
 from compartido.rutas import DESCARGAS_DIR
 
+import lancedb
 
 RESULTADOS_DIR = DESCARGAS_DIR / "resultados"
 
@@ -61,8 +62,11 @@ def main():
 		print(f"Backend '{args.backend}' no soportado en esta version. haciendo fallback a 'lance'.")
 		args.backend = "lance"
 
-	embed_query = obtener_embed_query(args.query, args.embedder)
-	print(f"Embed de la query (size): {len(embed_query)}.")
+	# embed_query = obtener_embed_query(args.query, args.embedder)
+	# print(f"Embed de la query (size): {len(embed_query)}.")
+
+	buscar(args, "embed_query")
+
 
 		
 def obtener_embed_query(query, embedder_id):
@@ -78,7 +82,30 @@ def obtener_embed_query(query, embedder_id):
 		vector = modelo.encode(query, normalize_embeddings=True)
 
 	vector = vector.astype("float32").tolist()
-	return vector    
+	return vector
+
+def buscar(args, embed_query):
+	query = args.query.strip()
+	modo = args.modo
+	peso = args.peso_denso
+	nombre_modelo = args.embedder
+
+	db = lancedb.connect(INDICE_DIR)
+	tablas = list(db.list_tables().tables)
+
+	print(f"Tablas disponibles en el indice: {tablas}")
+	if nombre_modelo not in tablas:
+		print(f"Error: No se encontro una tabla para el embedder '{nombre_modelo}' en el indice.")
+		return
+
+	tabla = db.open_table(nombre_modelo)
+	if tabla.count_rows() == 0:
+		print(f"Error: La tabla para el embedder '{nombre_modelo}' esta vacia.")
+		return
+	
+	print(tabla.schema)
+	
+
 
 
 if __name__ == "__main__":
