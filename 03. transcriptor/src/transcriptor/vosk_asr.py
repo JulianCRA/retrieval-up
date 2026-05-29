@@ -78,7 +78,7 @@ def _transcribir_segmento(modelo, audio_bytes, sample_rate, bytes_per_frame, ini
     return inicio, fin, rec.FinalResult()
 
 @cronometrar(etiqueta="Transcripción total")
-def transcribir_vosk(paths):
+def transcribir_vosk(paths, perfil=None):
     modelo_path = _obtener_modelo_es()
     vosk.SetLogLevel(-1)
     modelo = vosk.Model(str(modelo_path))
@@ -90,7 +90,9 @@ def transcribir_vosk(paths):
     segmentos = obtener_fragmentos_asr(segmentos["segmentos"], PERFIL_VOSK)
 
     transcripciones = []
-    num_workers = crear_perfil_hardware()["cpu_physical_cores"]
+    if perfil is None:
+        perfil = crear_perfil_hardware()
+    num_workers = perfil["cpu_physical_cores"]
     # num_workers = 4
 
     with wave.open(str(paths["audio"]), "rb") as wf:
