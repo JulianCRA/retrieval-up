@@ -1,6 +1,6 @@
 import argparse
 
-from compartido.embedders import listar_ids
+from compartido.embedders import listar_ids, cargar_sentence_transformer, listar_ids, get_spec
 from compartido.rutas import DESCARGAS_DIR
 
 
@@ -60,6 +60,25 @@ def main():
 	if args.backend != "lance":
 		print(f"Backend '{args.backend}' no soportado en esta version. haciendo fallback a 'lance'.")
 		args.backend = "lance"
+
+	embed_query = obtener_embed_query(args.query, args.embedder)
+	print(f"Embed de la query (size): {len(embed_query)}.")
+
+		
+def obtener_embed_query(query, embedder_id):
+	modelo = cargar_sentence_transformer(embedder_id)
+	config = get_spec(embedder_id)
+	query = query.strip()
+	if config.prefijo_query:
+		query = config.prefijo_query + query
+	
+	if config.tarea_query:
+		vector = modelo.encode(query, normalize_embeddings=True, task=config.tarea_query)
+	else:
+		vector = modelo.encode(query, normalize_embeddings=True)
+
+	vector = vector.astype("float32").tolist()
+	return vector    
 
 
 if __name__ == "__main__":
