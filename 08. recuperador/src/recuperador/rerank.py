@@ -1,3 +1,5 @@
+from compartido.utils import cronometrar, medir
+
 RERANKERS = {
     "mmarco": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
     "bge": "BAAI/bge-reranker-v2-m3",
@@ -7,6 +9,7 @@ RERANKERS = {
 _modelo_cache: dict = {}
 
 
+@cronometrar(etiqueta="carga_reranker")
 def _cargar_modelo(reranker_id: str):
     from sentence_transformers import CrossEncoder
 
@@ -17,6 +20,7 @@ def _cargar_modelo(reranker_id: str):
     return _modelo_cache[reranker_id]
 
 
+@cronometrar(etiqueta="rerank")
 def rerank(query: str, filas: list[dict], reranker_id: str) -> list[dict]:
     if not filas:
         return filas
@@ -25,7 +29,8 @@ def rerank(query: str, filas: list[dict], reranker_id: str) -> list[dict]:
     textos = [fila.get("texto", "") for fila in filas]
     pares = [(query, t) for t in textos]
 
-    scores = modelo.predict(pares)
+    with medir("inferencia_reranker"):
+        scores = modelo.predict(pares)
 
     for fila, score in zip(filas, scores):
         fila["score_rerank"] = float(score)

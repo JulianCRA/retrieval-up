@@ -9,7 +9,7 @@ CACHE_DIR = MODELOS_TORCH_HUB_DIR
 _APPLY_TE = None
 
 
-@cronometrar(etiqueta="Carga silero_te")
+@cronometrar(etiqueta="carga_modelo")
 def _hacer_carga_silero_te():
 	global _APPLY_TE
 	import torch

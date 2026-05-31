@@ -1,22 +1,18 @@
 """Estrategia de fragmentacion semantica: corta donde cae la similitud
 coseno entre segmentos vecinos, usando el MISMO modelo de embedding objetivo
 (opcionalmente un modelo `boundary` mas liviano).
-
-Mide por separado el tiempo de carga del modelo y el de inferencia.
 """
 from __future__ import annotations
-
-import time
 
 import numpy as np
 
 from compartido.embedders import Sizer, cargar_sentence_transformer, get_spec
-from compartido.utils import cronometrar
+from compartido.utils import cronometrar, medir
 
 from fragmentador._comun import construir_fragmento, preparar_segmentos
 
 
-@cronometrar(etiqueta="Fragmentacion semantica")
+@cronometrar(etiqueta="fragmentacion")
 def fragmentar(
 	transcripciones: list[dict],
 	sizer: Sizer,
@@ -29,12 +25,8 @@ def fragmentar(
 	"""Devuelve un dict con:
 	  - fragmentos: list[dict]
 	  - boundary_hf_id: str
-	  - tiempos: {"carga_modelo": float, "inferencia": float}
-
-	Si `model` se proporciona ya cargado, se omite la carga (tiempo_carga=0).
 	"""
-	vacio = {"fragmentos": [], "boundary_hf_id": "",
-	         "tiempos": {"carga_modelo": 0.0, "inferencia": 0.0}}
+	vacio = {"fragmentos": [], "boundary_hf_id": ""}
 	if not transcripciones:
 		return vacio
 
@@ -47,13 +39,10 @@ def fragmentar(
 
 	# 1) Carga del modelo (solo si no se paso uno pre-cargado)
 	if model is None:
-		t0 = time.perf_counter()
-		modelo = cargar_sentence_transformer(boundary_id, device=device)
-		tiempo_carga = round(time.perf_counter() - t0, 2)
-		print(f"[TIEMPO] Carga modelo boundary ({boundary_id}): {tiempo_carga:.2f}s")
+		with medir(f"carga_modelo_boundary ({boundary_id})"):
+			modelo = cargar_sentence_transformer(boundary_id, device=device)
 	else:
 		modelo = model
-		tiempo_carga = 0.0
 
 	# 2) Inferencia (encode de todos los segmentos)
 	textos_emb = [boundary_spec.prefijo_passage + s.get("texto", "") for s in segmentos]
@@ -64,10 +53,8 @@ def fragmentar(
 	}
 	if boundary_spec.tarea_passage:
 		encode_kwargs["task"] = boundary_spec.tarea_passage
-	t0 = time.perf_counter()
-	embeddings = modelo.encode(textos_emb, **encode_kwargs)
-	tiempo_inferencia = round(time.perf_counter() - t0, 2)
-	print(f"[TIEMPO] Inferencia boundary ({len(segmentos)} segmentos): {tiempo_inferencia:.2f}s")
+	with medir(f"inferencia_boundary ({len(segmentos)} segmentos)"):
+		embeddings = modelo.encode(textos_emb, **encode_kwargs)
 
 	# Con embeddings normalizados el coseno es el dot directo.
 	similitudes = [
@@ -104,10 +91,6 @@ def fragmentar(
 	return {
 		"fragmentos": fragmentos,
 		"boundary_hf_id": boundary_spec.hf_id,
-		"tiempos": {
-			"carga_modelo": tiempo_carga,
-			"inferencia": tiempo_inferencia,
-		},
 	}
 
 

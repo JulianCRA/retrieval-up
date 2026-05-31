@@ -1,3 +1,7 @@
+from compartido.utils import cronometrar
+
+
+@cronometrar(etiqueta="rrf")
 def rrf(resultados_semantica, resultados_sintactica, k = 60):
 	# indexar por id
 	indices_semantica: dict[str, dict] = {}
@@ -45,6 +49,7 @@ def rrf(resultados_semantica, resultados_sintactica, k = 60):
 		salida.append(base)
 	return salida
 
+@cronometrar(etiqueta="wrrf")
 def wrrf(resultados_semantica, resultados_sintactica, k = 60, peso_semantica = 0.7):
 	# indexar por id
 	indices_semantica: dict[str, dict] = {}

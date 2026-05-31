@@ -4,6 +4,7 @@ from datetime import datetime
 
 from compartido.embedders import listar_ids
 from compartido.rutas import DESCARGAS_DIR, RESULTADOS_DIR
+from compartido.utils import cronometro_activo
 
 from recuperador.busqueda import buscar
 from recuperador.fusionado import rrf, wrrf
@@ -63,28 +64,28 @@ def main():
 		print(f"Backend '{args.backend}' no soportado en esta version. haciendo fallback a 'lance'.")
 		args.backend = "lance"
 
-	
-	semantica, sintactica = buscar(args.embedder, args.query, args.modo, args.top_k)
+	with cronometro_activo() as crono:
+		semantica, sintactica = buscar(args.embedder, args.query, args.modo, args.top_k)
 
-	if args.modo in ("rrf", "hibrido"):
-		filas = rrf(semantica, sintactica)
-	elif args.modo == "wrrf":
-		filas = wrrf(semantica, sintactica, peso_semantica=args.peso_semantica)
-	elif args.modo == "bm25":
-		filas = sintactica
-	else:
-		filas = semantica
+		if args.modo in ("rrf", "hibrido"):
+			filas = rrf(semantica, sintactica)
+		elif args.modo == "wrrf":
+			filas = wrrf(semantica, sintactica, peso_semantica=args.peso_semantica)
+		elif args.modo == "bm25":
+			filas = sintactica
+		else:
+			filas = semantica
 
-	if args.reranker:
-		filas = rerank(args.query, filas, args.reranker)
+		if args.reranker:
+			filas = rerank(args.query, filas, args.reranker)
 
-	filas = filas[:args.top_k]
+		filas = filas[:args.top_k]
 
-	imprimir_resultados(args.query, args.modo, filas, reranker=args.reranker)
-	guardar_resultado(args, filas)
+		imprimir_resultados(args.query, args.modo, filas, reranker=args.reranker)
+		guardar_resultado(args, filas, tiempos=crono.resumen())
 
 
-def guardar_resultado(args, filas):
+def guardar_resultado(args, filas, tiempos=None):
 	RESULTADOS_DIR.mkdir(parents=True, exist_ok=True)
 	ahora = datetime.now()
 	stamp = ahora.strftime("%Y%m%d_%H%M%S")
@@ -107,7 +108,9 @@ def guardar_resultado(args, filas):
 		"modo": args.modo,
 		"top_k": args.top_k,
 		**peso,
+		"reranker": args.reranker,
 		"num_resultados": len(resultados_limpios),
+		"tiempos": tiempos or {},
 		"resultados": resultados_limpios,
 	}
 

@@ -15,7 +15,7 @@ _SPACY_NLP = None
 
 # ── punctuation ───────────────────────────────────────────────────────────────
 
-@cronometrar(etiqueta="Carga punctuate-all")
+@cronometrar(etiqueta="carga_modelo")
 def _hacer_carga_modelo():
 	global _TOKENIZER, _MODEL, _DEVICE
 	import torch
@@ -91,7 +91,7 @@ def _puntuar(texto: str) -> str:
 
 # ── capitalization ────────────────────────────────────────────────────────────
 
-@cronometrar(etiqueta="Carga spacy")
+@cronometrar(etiqueta="carga_spacy")
 def _hacer_carga_spacy():
 	global _SPACY_NLP
 	import spacy

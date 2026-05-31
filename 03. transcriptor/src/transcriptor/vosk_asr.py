@@ -6,7 +6,7 @@ from urllib.request import urlretrieve
 
 from compartido.rutas import MODELOS_VOSK_DIR
 from compartido.json_utils import cargar_archivo, guardar_archivo
-from compartido.utils import crear_perfil_hardware, cronometrar
+from compartido.utils import crear_perfil_hardware, cronometrar, medir
 from .chunks import obtener_fragmentos_asr
 
 import wave
@@ -77,11 +77,12 @@ def _transcribir_segmento(modelo, audio_bytes, sample_rate, bytes_per_frame, ini
     rec.AcceptWaveform(chunk)
     return inicio, fin, rec.FinalResult()
 
-@cronometrar(etiqueta="Transcripción total")
+@cronometrar(etiqueta="transcripcion")
 def transcribir_vosk(paths, perfil=None):
-    modelo_path = _obtener_modelo_es()
-    vosk.SetLogLevel(-1)
-    modelo = vosk.Model(str(modelo_path))
+    with medir("carga_modelo"):
+        modelo_path = _obtener_modelo_es()
+        vosk.SetLogLevel(-1)
+        modelo = vosk.Model(str(modelo_path))
 
     segmentos = cargar_archivo(paths["segmentos"])
     if segmentos is None:
@@ -100,7 +101,7 @@ def transcribir_vosk(paths, perfil=None):
         bytes_per_frame = wf.getnchannels() * wf.getsampwidth()
         audio_bytes = wf.readframes(wf.getnframes())
 
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+    with medir("inferencia"), ThreadPoolExecutor(max_workers=num_workers) as executor:
         print(f"[INFO] Transcribiendo {len(segmentos)} segmentos con {num_workers} workers...")
         futures = {
             executor.submit(_transcribir_segmento, modelo, audio_bytes, sample_rate, bytes_per_frame, seg[0], seg[1]): (seg[0], seg[1])
@@ -128,9 +129,6 @@ def transcribir_vosk(paths, perfil=None):
         "modelo": "Vosk SPA (full)",
         "perfil": PERFIL_VOSK,
         "num_workers": num_workers,
-        "tiempo_transcripcion": None,
-        "speed_up": None,
-        "rt_factor": None,
         "num_segmentos": len(transcripciones),
         "duracion_promedio_segmento": round(sum(t["duracion"] for t in transcripciones) / len(transcripciones), 2) if transcripciones else 0,
         "transcripciones": transcripciones,
