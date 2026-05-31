@@ -4,7 +4,7 @@ from pathlib import Path
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
-from compartido.utils import cronometrar
+from compartido.utils import cronometrar, crear_perfil_hardware
 
 import soundfile as sf
 import noisereduce as nr
@@ -54,8 +54,11 @@ Métodos de detección de voz (VAD):
 
     parser.add_argument(
         "--hash",
-        required = True,
-        help = "Buscar contenido a partir del hash generado en el proceso de descarga",
+        required=True,
+        action="append",
+        dest="hashes",
+        metavar="HASH",
+        help="Hash a procesar. Repetir para procesar varios en un solo comando.",
     )
 
     parser.add_argument(
@@ -66,18 +69,23 @@ Métodos de detección de voz (VAD):
 
     args = parser.parse_args()
 
-    procesar_hash(args.hash, args.metodo)
+    procesar(args.hashes, args.metodo)
 
-def procesar_hash(hash, metodo=None):
+def procesar(hashes: list[str], metodo=None):
+    perfil = crear_perfil_hardware(forzado={"device": "cpu"})
+    for hash in hashes:
+        procesar_hash(hash, metodo, perfil=perfil)
+
+def procesar_hash(hash, metodo=None, perfil=None):
     folder = DESCARGAS_DIR / hash
     ruta_info = folder / "info.json"
     info = ju.cargar_archivo(ruta_info)
     if info is None:
         print(f"[ERROR] No se encontró información para el hash '{hash}'.")
         sys.exit(1)
-    procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo, folder=folder)
+    procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo, folder=folder, perfil=perfil)
 
-def procesar_archivo(ruta, metodo=None, folder=None):
+def procesar_archivo(ruta, metodo=None, folder=None, perfil=None):
     audio, samplerate = sf.read(ruta)
     duracion = len(audio) / samplerate
 
@@ -85,7 +93,7 @@ def procesar_archivo(ruta, metodo=None, folder=None):
 
     audio = normalizar_volumen(audio)
     tiempo_norm_vol = normalizar_volumen.elapsed
-    audio = reducir_ruido(audio, samplerate)
+    audio = reducir_ruido(audio, samplerate, perfil=perfil)
     tiempo_reduccion = reducir_ruido.elapsed
     audio= normalizar_picos(audio)
     tiempo_norm_picos = normalizar_picos.elapsed
@@ -119,10 +127,10 @@ def procesar_archivo(ruta, metodo=None, folder=None):
 
 
 @cronometrar(etiqueta="Reduccion de ruido")
-def reducir_ruido(audio, samplerate):
+def reducir_ruido(audio, samplerate, perfil=None):
     print(f"[INFO] Aplicando reducción de ruido...")
-    from compartido.utils import crear_perfil_hardware
-    perfil = crear_perfil_hardware(forzado={"device": "cpu"})
+    if perfil is None:
+        perfil = crear_perfil_hardware(forzado={"device": "cpu"})
 
     n = samplerate  # 1 segundo por muestra
     total = len(audio)

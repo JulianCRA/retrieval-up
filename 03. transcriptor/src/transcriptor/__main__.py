@@ -19,8 +19,11 @@ def main():
 
     parser.add_argument(
         "--hash",
-        required = True,
-        help = "Obtener segmentos de audio a partir del hash generado en el proceso de descarga",
+        required=True,
+        action="append",
+        dest="hashes",
+        metavar="HASH",
+        help="Hash a transcribir. Repetir para procesar varios en un solo comando.",
     )
 
     grupo = parser.add_mutually_exclusive_group()
@@ -43,9 +46,14 @@ def main():
         sys.exit(0)
     elif args.modelo is None:
         args.modelo = "vosk"
-    procesar_hash(args.hash, args.modelo)
+    procesar(args.hashes, args.modelo)
 
-def procesar_hash(hash, modelo="vosk"):
+def procesar(hashes: list[str], modelo="vosk"):
+    perfil = crear_perfil_hardware()
+    for hash in hashes:
+        procesar_hash(hash, modelo, perfil=perfil)
+
+def procesar_hash(hash, modelo="vosk", perfil=None):
     folder = DESCARGAS_DIR / hash
     info = ju.cargar_archivo(folder / "info.json")
     if info is None:
@@ -64,9 +72,9 @@ def procesar_hash(hash, modelo="vosk"):
 
     transcripciones_path = folder / "transcripciones.json"
 
-    obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo=modelo)
+    obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo=modelo, perfil=perfil)
 
-def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo="vosk"):
+def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo="vosk", perfil=None):
     print(f"[INFO] Transcribiendo '{audio_path.name}' usando el modelo '{modelo}'...")
     paths = {
         "audio": audio_path,
@@ -76,7 +84,7 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
 
     if modelo == "vosk":
         from .vosk_asr import transcribir_vosk
-        transcribir_vosk(paths)
+        transcribir_vosk(paths, perfil=perfil)
         tiempo_transcripcion = round(transcribir_vosk.elapsed, 2)
         duracion = audio_path.stat().st_size / (16000 * 2)  
         rt_factor = round(tiempo_transcripcion / duracion, 2) if duracion > 0 else None
@@ -89,7 +97,7 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
     elif modelo.startswith("whisper:"):
         variante = modelo.split(":", 1)[1]
         from .whisper_asr import transcribir_whisper
-        transcribir_whisper(paths, modelo=variante)
+        transcribir_whisper(paths, modelo=variante, perfil=perfil)
         tiempo_transcripcion = round(transcribir_whisper.elapsed, 2)
         duracion = audio_path.stat().st_size / (16000 * 2)
         rt_factor = round(tiempo_transcripcion / duracion, 2) if duracion > 0 else None
@@ -101,7 +109,7 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
         })
     elif modelo == "cohere":
         from .cohere_asr import transcribir_cohere
-        transcribir_cohere(paths)
+        transcribir_cohere(paths, perfil=perfil)
         tiempo_transcripcion = round(transcribir_cohere.elapsed, 2)
         duracion = audio_path.stat().st_size / (16000 * 2)
         rt_factor = round(tiempo_transcripcion / duracion, 2) if duracion > 0 else None

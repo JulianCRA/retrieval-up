@@ -80,12 +80,12 @@ def _cargar_modelo(params: dict):
 
 
 @cronometrar(etiqueta="Transcripción total Cohere")
-def transcribir_cohere(paths, idioma: str = "es"):
+def transcribir_cohere(paths, idioma: str = "es", perfil=None):
     segmentos_raw = cargar_archivo(paths["segmentos"])["segmentos"]
     spans = obtener_fragmentos_asr(segmentos_raw, PERFIL_COHERE)
 
     # hardware = crear_perfil_hardware(forzado={"device": "cpu", "cpu_physical_cores": 4})
-    hardware = crear_perfil_hardware()
+    hardware = perfil if perfil is not None else crear_perfil_hardware()
     params = _computar_parametros(len(spans), hardware)
 
     processor, model = _cargar_modelo(params)

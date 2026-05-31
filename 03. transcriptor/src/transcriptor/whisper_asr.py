@@ -51,9 +51,9 @@ def _batch_size_cpu(n_fragmentos: int, model_size_or_path: str, hardware: dict) 
 
 	return max(1, min(batch_size, n_fragmentos))
 
-def computar_parametros(n_fragmentos: int, model_size_or_path: str, margen: float = 0.85):
+def computar_parametros(n_fragmentos: int, model_size_or_path: str, margen: float = 0.85, perfil: dict | None = None):
 	# hardware = crear_perfil_hardware(forzado={"vram_gb": 8})
-	hardware = crear_perfil_hardware()
+	hardware = perfil if perfil is not None else crear_perfil_hardware()
 	dev = hardware.get("device", "cpu")
 
 	params = {"device": dev, "ram_gb": hardware.get("ram_gb", 0)}
@@ -112,12 +112,12 @@ def cargar_modelo_whisper(model_size_or_path, params):
 	return model
 
 @cronometrar(etiqueta="Whisper")
-def transcribir_whisper(paths, modelo="small"):
+def transcribir_whisper(paths, modelo="small", perfil=None):
 	segmentos_raw = cargar_archivo(paths["segmentos"])["segmentos"]
 	spans = obtener_fragmentos_asr(segmentos_raw, PERFIL_WHISPER)
 	audio_path = paths["audio"]
 
-	params = computar_parametros(len(spans), modelo)
+	params = computar_parametros(len(spans), modelo, perfil=perfil)
 
 	model = cargar_modelo_whisper(modelo, params)
 	carga_tiempo = round(cargar_modelo_whisper.elapsed, 3)
