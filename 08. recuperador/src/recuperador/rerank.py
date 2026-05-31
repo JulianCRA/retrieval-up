@@ -1,5 +1,7 @@
 RERANKERS = {
     "mmarco": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
+    "bge": "BAAI/bge-reranker-v2-m3",
+    "jina": "jinaai/jina-reranker-v2-base-multilingual",
 }
 
 _modelo_cache: dict = {}
