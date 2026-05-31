@@ -1,12 +1,12 @@
 import argparse
+import json
+from datetime import datetime
 
 from compartido.embedders import listar_ids
-from compartido.rutas import DESCARGAS_DIR
+from compartido.rutas import DESCARGAS_DIR, RESULTADOS_DIR
 
 from recuperador.busqueda import buscar
 from recuperador.fusionado import rrf, wrrf
-
-RESULTADOS_DIR = DESCARGAS_DIR / "resultados"
 
 MODOS = ["rrf", "wrrf", "denso", "bm25"]
 
@@ -69,8 +69,44 @@ def main():
 		filas = semantica
 
 	imprimir_resultados(args.query, args.modo, filas)
+	guardar_resultado(args, filas)
 
-	
+
+def guardar_resultado(args, filas):
+	RESULTADOS_DIR.mkdir(parents=True, exist_ok=True)
+	ahora = datetime.now()
+	stamp = ahora.strftime("%Y%m%d_%H%M%S")
+	nombre = f"{stamp}_{args.modo}_{args.embedder}.json"
+
+	_EXCLUIR = {"vector", "texto_bm25"}
+
+	resultados_limpios = []
+	for rank, fila in enumerate(filas or [], start=1):
+		item = {k: v for k, v in fila.items() if k not in _EXCLUIR}
+		item["rank"] = rank
+		resultados_limpios.append(item)
+
+	peso = {"peso_semantica": args.peso_semantica} if args.modo == "wrrf" else {}
+
+	documento = {
+		"timestamp": ahora.isoformat(timespec="seconds"),
+		"query": args.query,
+		"embedder": args.embedder,
+		"modo": args.modo,
+		"top_k": args.top_k,
+		**peso,
+		"num_resultados": len(resultados_limpios),
+		"resultados": resultados_limpios,
+	}
+
+	ruta = RESULTADOS_DIR / nombre
+	try:
+		with open(ruta, "w", encoding="utf-8") as f:
+			json.dump(documento, f, indent=2, ensure_ascii=False)
+		print(f"[OK] Resultado guardado en '{ruta}'.")
+	except IOError as e:
+		print(f"[ERROR] No se pudo guardar el resultado: {e}")
+
 
 def imprimir_resultados(query, modo, filas):
 	print(f"\nResultados para la consulta: '{query}' (modo: {modo}):")
