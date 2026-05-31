@@ -204,12 +204,14 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 
 	_PRINT_SUPPRESS = {"flash_attn is not installed"}
 
-	class _FilteredStdout:
+	class _FilteredStream:
+		def __init__(self, stream):
+			self._stream = stream
 		def write(self, s):
 			if not any(p in s for p in _PRINT_SUPPRESS):
-				sys.__stdout__.write(s)
+				self._stream.write(s)
 		def flush(self):
-			sys.__stdout__.flush()
+			self._stream.flush()
 
 	_loggers = [
 		logging.getLogger(name)
@@ -219,13 +221,15 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	for lg in _loggers:
 		lg.setLevel(logging.ERROR)
 
-	_prev_stdout = sys.stdout
-	sys.stdout = _FilteredStdout()
+	_prev_stdout, _prev_stderr = sys.stdout, sys.stderr
+	sys.stdout = _FilteredStream(sys.__stdout__)
+	sys.stderr = _FilteredStream(sys.__stderr__)
 	with warnings.catch_warnings():
 		warnings.filterwarnings("ignore", message=".*flash_attn.*")
 		try:
 			return SentenceTransformer(spec.hf_id, **kwargs)
 		finally:
 			sys.stdout = _prev_stdout
+			sys.stderr = _prev_stderr
 			for lg, lvl in zip(_loggers, _prev_levels):
 				lg.setLevel(lvl)
