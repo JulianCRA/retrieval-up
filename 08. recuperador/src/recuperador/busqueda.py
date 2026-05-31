@@ -7,6 +7,7 @@ from compartido.rutas import DESCARGAS_DIR
 
 INDICE_DIR = DESCARGAS_DIR / "indice"
 
+FACTOR_OVERSAMPLING = 4
 	
 def abrir_tabla(nombre):
 	db = lancedb.connect(INDICE_DIR)
@@ -88,6 +89,6 @@ def buscar(nombre_embedder, query, modo, top_k=5):
 	elif modo == "rrf" or modo == "hibrido":
 		tokens_query = tokenizar_query_bm25(query)
 		vector_query = vectorizar_query(query, tabla.name)
-		return busqueda_semantica(tabla, vector_query, top_k), busqueda_sintactica(tabla, tokens_query, top_k)
+		return busqueda_semantica(tabla, vector_query, top_k*FACTOR_OVERSAMPLING), busqueda_sintactica(tabla, tokens_query, top_k*FACTOR_OVERSAMPLING)
         
 	return None, None

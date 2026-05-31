@@ -4,6 +4,7 @@ from compartido.embedders import listar_ids
 from compartido.rutas import DESCARGAS_DIR
 
 from recuperador.busqueda import buscar
+from recuperador.fusionado import rrf
 
 RESULTADOS_DIR = DESCARGAS_DIR / "resultados"
 
@@ -50,7 +51,14 @@ def main():
 
 	
 	semantica, sintactica = buscar(args.embedder, args.query, args.modo, args.top_k)
-	filas = sintactica if args.modo == "bm25" else semantica
+
+	if args.modo in ("rrf", "hibrido"):
+		filas = rrf(semantica, sintactica, args.top_k)
+	elif args.modo == "bm25":
+		filas = sintactica
+	else:
+		filas = semantica
+		
 	imprimir_resultados(args.query, args.modo, filas)
 
 	
