@@ -1,7 +1,7 @@
 import lancedb
 
 from compartido.embedders import cargar_sentence_transformer, get_spec
-from indexador.bm25 import tokenizar, tokens_a_texto
+from compartido.bm25 import tokenizar, tokens_a_texto
 
 from compartido.rutas import DESCARGAS_DIR
 

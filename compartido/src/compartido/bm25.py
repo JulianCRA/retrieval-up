@@ -9,9 +9,9 @@ Pipeline por token (solo los que pasan el filtro POS):
   6. Descartar tokens de menos de 2 caracteres tras la normalizacion
   7. Aplicar lista extra de muletillas ASR
 
-El resultado es una lista de lemmas normalizados lista para serializar
-en tokens_bm25.json y para construir el campo texto_bm25 del indice
-LanceDB (tokens unidos por espacio, que es lo que indexa tantivy).
+El resultado es una lista de lemmas normalizados lista para construir
+el campo texto_bm25 del indice LanceDB (tokens unidos por espacio,
+que es lo que indexa tantivy).
 """
 
 import unicodedata

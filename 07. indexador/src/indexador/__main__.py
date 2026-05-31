@@ -11,7 +11,7 @@ from compartido.utils import cronometrar
 
 import importlib
 
-from indexador.bm25 import tokenizar, tokens_a_texto
+from compartido.bm25 import tokenizar, tokens_a_texto
 
 
 # Directorio por defecto del indice (default de --db para el backend lance).
@@ -235,33 +235,8 @@ def _procesar_hash(
 		sys.exit(1)
 	embeddings = embeddings.astype(np.float32, copy=False)
 
-	# --- BM25: tokenizar o cargar desde disco ---
-	tokens_bm25_path = folder / "tokens_bm25.json"
-	if not reclear and tokens_bm25_path.exists():
-		bm25_data = ju.cargar_archivo(tokens_bm25_path)
-		tokens_por_fragmento = [f["tokens"] for f in bm25_data["fragmentos"]]
-		print(f"[OK] Tokens BM25 cargados desde '{tokens_bm25_path}'.")
-	else:
-		tokens_por_fragmento = _tokenizar_fragmentos(fragmentos)
-		resultado_bm25 = {
-			"hash": hash_id,
-			"tokenizador": "spacy_es_core_news_lg",
-			"con_stemming": True,
-			"num_fragmentos": len(fragmentos),
-			"fragmentos": [
-				{
-					"chunk_idx": i,
-					"tokens": tokens,
-					"texto_bm25": tokens_a_texto(tokens),
-				}
-				for i, tokens in enumerate(tokens_por_fragmento)
-			],
-		}
-		if ju.guardar_archivo(tokens_bm25_path, resultado_bm25):
-			print(f"[OK] Tokens BM25 guardados en '{tokens_bm25_path}'.")
-		else:
-			print(f"[ERROR] No se pudo guardar '{tokens_bm25_path}'.")
-			sys.exit(1)
+	# --- BM25: tokenizar ---
+	tokens_por_fragmento = _tokenizar_fragmentos(fragmentos)
 
 	# --- LanceDB: construir filas y escribir ---
 	# nombre_tabla ya definido arriba
