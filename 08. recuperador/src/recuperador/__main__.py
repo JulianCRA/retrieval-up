@@ -4,7 +4,7 @@ from datetime import datetime
 
 from compartido.embedders import listar_ids
 from compartido.rutas import DESCARGAS_DIR, RESULTADOS_DIR
-from compartido.utils import cronometro_activo
+from compartido.utils import crear_perfil_hardware, cronometro_activo
 
 from recuperador.busqueda import buscar
 from recuperador.fusionado import rrf, wrrf
@@ -57,6 +57,12 @@ def main():
 		choices=list(RERANKERS),
 		help=f"Reranker a aplicar tras la recuperacion: {', '.join(RERANKERS)}. Default: ninguno.",
 	)
+	parser.add_argument(
+		"--forzar-cpu",
+		action="store_true",
+		dest="forzar_cpu",
+		help="Forzar uso de CPU aunque haya GPU disponible (afecta al encoder de la query y al reranker).",
+	)
 
 	args = parser.parse_args()
 
@@ -64,8 +70,11 @@ def main():
 		print(f"Backend '{args.backend}' no soportado en esta version. haciendo fallback a 'lance'.")
 		args.backend = "lance"
 
+	forzado = {"device": "cpu"} if args.forzar_cpu else None
+	device = crear_perfil_hardware(forzado=forzado)["device"]
+
 	with cronometro_activo() as crono:
-		semantica, sintactica = buscar(args.embedder, args.query, args.modo, args.top_k)
+		semantica, sintactica = buscar(args.embedder, args.query, args.modo, args.top_k, device=device)
 
 		if args.modo in ("rrf", "hibrido"):
 			filas = rrf(semantica, sintactica)
@@ -77,7 +86,7 @@ def main():
 			filas = semantica
 
 		if args.reranker:
-			filas = rerank(args.query, filas, args.reranker)
+			filas = rerank(args.query, filas, args.reranker, device=device)
 
 		filas = filas[:args.top_k]
 

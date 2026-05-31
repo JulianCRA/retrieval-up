@@ -3,7 +3,7 @@ import sys
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
-from compartido.utils import cronometrar, cronometro_activo, medir
+from compartido.utils import crear_perfil_hardware, cronometrar, cronometro_activo, medir
 from corrector.alinear import alinear_segmentos
 
 
@@ -26,12 +26,20 @@ def main():
 		default="silero",
 		help="Motor de puntuacion: silero (default) o p-all (punctuate-all + spacy).",
 	)
+	parser.add_argument(
+		"--forzar-cpu",
+		action="store_true",
+		dest="forzar_cpu",
+		help="Forzar uso de CPU aunque haya GPU disponible (solo aplica al backend p-all; silero ya corre en CPU).",
+	)
 
 	args = parser.parse_args()
-	procesar(args.hashes, backend=args.m)
+	procesar(args.hashes, backend=args.m, forzar_cpu=args.forzar_cpu)
 
 
-def procesar(hashes: list[str], backend: str = "silero"):
+def procesar(hashes: list[str], backend: str = "silero", forzar_cpu: bool = False):
+	forzado = {"device": "cpu"} if forzar_cpu else None
+	perfil = crear_perfil_hardware(forzado=forzado)
 	# Pre-load model once before the loop.
 	apply_te = None
 	if backend == "silero":
@@ -40,17 +48,17 @@ def procesar(hashes: list[str], backend: str = "silero"):
 		apply_te = cargar_silero_te()
 	elif backend == "p-all":
 		from corrector.p_all import _cargar
-		_cargar()  # warm up global cache
+		_cargar(device=perfil["device"])  # warm up global cache
 
 	for hash_id in hashes:
-		procesar_hash(hash_id, backend=backend, apply_te=apply_te)
+		procesar_hash(hash_id, backend=backend, apply_te=apply_te, perfil=perfil)
 
 
 def _texto_desde_segmentos(segmentos: list[dict]) -> str:
 	return " ".join(seg.get("texto", "") for seg in segmentos).strip()
 
 
-def procesar_hash(hash_id: str, backend: str = "silero", apply_te=None):
+def procesar_hash(hash_id: str, backend: str = "silero", apply_te=None, perfil=None):
 	folder = DESCARGAS_DIR / hash_id
 	transcripciones_path = folder / "transcripciones.json"
 	correcciones_path = folder / "correcciones.json"
@@ -98,9 +106,10 @@ def procesar_hash(hash_id: str, backend: str = "silero", apply_te=None):
 
 		if backend == "p-all":
 			from corrector.p_all import corregir_p_all
+			device = perfil["device"] if perfil else None
 			@cronometrar(etiqueta="correccion")
 			def _procesar_p_all():
-				return corregir_p_all(texto)
+				return corregir_p_all(texto, device=device)
 			texto_corregido = _procesar_p_all()
 		else:
 			import torch

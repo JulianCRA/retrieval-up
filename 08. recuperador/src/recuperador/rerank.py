@@ -10,22 +10,23 @@ _modelo_cache: dict = {}
 
 
 @cronometrar(etiqueta="carga_reranker")
-def _cargar_modelo(reranker_id: str):
+def _cargar_modelo(reranker_id: str, device: str = "cpu"):
     from sentence_transformers import CrossEncoder
 
-    if reranker_id not in _modelo_cache:
+    cache_key = (reranker_id, device)
+    if cache_key not in _modelo_cache:
         model_name = RERANKERS[reranker_id]
-        print(f"[reranker] Cargando '{model_name}'...")
-        _modelo_cache[reranker_id] = CrossEncoder(model_name)
-    return _modelo_cache[reranker_id]
+        print(f"[reranker] Cargando '{model_name}' en {device}...")
+        _modelo_cache[cache_key] = CrossEncoder(model_name, device=device)
+    return _modelo_cache[cache_key]
 
 
 @cronometrar(etiqueta="rerank")
-def rerank(query: str, filas: list[dict], reranker_id: str) -> list[dict]:
+def rerank(query: str, filas: list[dict], reranker_id: str, device: str = "cpu") -> list[dict]:
     if not filas:
         return filas
 
-    modelo = _cargar_modelo(reranker_id)
+    modelo = _cargar_modelo(reranker_id, device=device)
     textos = [fila.get("texto", "") for fila in filas]
     pares = [(query, t) for t in textos]
 

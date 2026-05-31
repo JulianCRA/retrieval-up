@@ -72,6 +72,12 @@ def main():
 		dest="boundary_embedder",
 		help="Modelo para detectar bordes en estrategia semantica. Default: el mismo que --embedder.",
 	)
+	parser.add_argument(
+		"--forzar-cpu",
+		action="store_true",
+		dest="forzar_cpu",
+		help="Forzar uso de CPU aunque haya GPU disponible (solo aplica a estrategia semantica).",
+	)
 
 	args = parser.parse_args()
 
@@ -103,6 +109,7 @@ def main():
 		umbral=args.umbral,
 		min_tokens=args.min_tokens,
 		boundary_embedder=args.boundary_embedder,
+		forzar_cpu=args.forzar_cpu,
 	)
 
 
@@ -115,6 +122,7 @@ def procesar(
 	umbral: float = 0.5,
 	min_tokens: int = 64,
 	boundary_embedder: str | None = None,
+	forzar_cpu: bool = False,
 ):
 	spec = get_spec(embedder)
 	sizer = Sizer(embedder, chunk_tokens=chunk_tokens)
@@ -127,7 +135,8 @@ def procesar(
 	boundary_model = None
 	device = "cpu"
 	if estrategia == "semantico":
-		perfil = crear_perfil_hardware()
+		forzado = {"device": "cpu"} if forzar_cpu else None
+		perfil = crear_perfil_hardware(forzado=forzado)
 		device = perfil["device"]
 		boundary_id = boundary_embedder or embedder
 		print(f"[INFO] Modelo de boundary: {boundary_id} (device={device})")

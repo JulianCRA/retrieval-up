@@ -27,9 +27,9 @@ def abrir_tabla(nombre):
 	
 	return tabla
 
-def vectorizar_query(query, embedder_id):
+def vectorizar_query(query, embedder_id, device: str = "cpu"):
 	with medir("carga_modelo_query"):
-		modelo = cargar_sentence_transformer(embedder_id)
+		modelo = cargar_sentence_transformer(embedder_id, device=device)
 	config = get_spec(embedder_id)
 	query = query.strip()
 	if config.prefijo_query:
@@ -82,18 +82,18 @@ def busqueda_semantica(tabla, embed_query, top_k=5):
 		resultados.append(item)
 	return resultados
 
-def buscar(nombre_embedder, query, modo, top_k=5):
+def buscar(nombre_embedder, query, modo, top_k=5, device: str = "cpu"):
 	tabla = abrir_tabla(nombre_embedder)
 	
 	if modo == "bm25":
 		tokens_query = tokenizar_query_bm25(query)
 		return None, busqueda_sintactica(tabla, tokens_query, top_k)
 	elif modo == "denso":
-		vector_query = vectorizar_query(query, tabla.name)
+		vector_query = vectorizar_query(query, tabla.name, device=device)
 		return busqueda_semantica(tabla, vector_query, top_k), None
 	elif modo in ("rrf", "wrrf", "hibrido"):
 		tokens_query = tokenizar_query_bm25(query)
-		vector_query = vectorizar_query(query, tabla.name)
+		vector_query = vectorizar_query(query, tabla.name, device=device)
 		return busqueda_semantica(tabla, vector_query, top_k), busqueda_sintactica(tabla, tokens_query, top_k)
         
 	return None, None

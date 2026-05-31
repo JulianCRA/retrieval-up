@@ -72,6 +72,12 @@ def main():
 		dest="normalizar",
 		help="No normalizar embeddings (por defecto se normalizan a norma 1).",
 	)
+	parser.add_argument(
+		"--forzar-cpu",
+		action="store_true",
+		dest="forzar_cpu",
+		help="Forzar uso de CPU aunque haya GPU disponible.",
+	)
 
 	args = parser.parse_args()
 
@@ -80,6 +86,7 @@ def main():
 		embedder=args.embedder,
 		batch_size=args.batch_size,
 		normalizar=args.normalizar,
+		forzar_cpu=args.forzar_cpu,
 	)
 
 
@@ -88,6 +95,7 @@ def procesar(
 	embedder: str | None = None,
 	batch_size: int = 16,
 	normalizar: bool = True,
+	forzar_cpu: bool = False,
 ):
 	# Determinar embedder desde el primer hash si no se paso por CLI.
 	embedder_id = embedder
@@ -100,7 +108,8 @@ def procesar(
 		sys.exit(1)
 
 	spec = get_spec(embedder_id)
-	device = crear_perfil_hardware()["device"]
+	forzado = {"device": "cpu"} if forzar_cpu else None
+	device = crear_perfil_hardware(forzado=forzado)["device"]
 
 	print(f"[INFO] Embedder: {spec.id_corto} ({spec.hf_id})")
 	print(f"[INFO] Dim: {spec.dim} | max_seq_len: {spec.max_seq_len}")

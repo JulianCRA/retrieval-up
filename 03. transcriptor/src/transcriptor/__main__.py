@@ -39,6 +39,13 @@ def main():
         choices=["vosk", "cohere", "whisper"],
     )
 
+    parser.add_argument(
+        "--forzar-cpu",
+        action="store_true",
+        dest="forzar_cpu",
+        help="Forzar uso de CPU aunque haya GPU disponible.",
+    )
+
     args = parser.parse_args()
 
     if args.info:
@@ -46,10 +53,11 @@ def main():
         sys.exit(0)
     elif args.modelo is None:
         args.modelo = "vosk"
-    procesar(args.hashes, args.modelo)
+    procesar(args.hashes, args.modelo, forzar_cpu=args.forzar_cpu)
 
-def procesar(hashes: list[str], modelo="vosk"):
-    perfil = crear_perfil_hardware()
+def procesar(hashes: list[str], modelo="vosk", forzar_cpu: bool = False):
+    forzado = {"device": "cpu"} if forzar_cpu else None
+    perfil = crear_perfil_hardware(forzado=forzado)
     for hash in hashes:
         procesar_hash(hash, modelo, perfil=perfil)
 
