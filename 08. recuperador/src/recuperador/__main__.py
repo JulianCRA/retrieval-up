@@ -7,6 +7,7 @@ from compartido.rutas import DESCARGAS_DIR, RESULTADOS_DIR
 
 from recuperador.busqueda import buscar
 from recuperador.fusionado import rrf, wrrf
+from recuperador.rerank import RERANKERS, rerank
 
 MODOS = ["rrf", "wrrf", "denso", "bm25"]
 
@@ -49,6 +50,12 @@ def main():
 		choices=["lance", "qdrant", "milvus"],
 		help="Backend de busqueda (default: lance).",
 	)
+	parser.add_argument(
+		"--reranker",
+		default=None,
+		choices=list(RERANKERS),
+		help=f"Reranker a aplicar tras la recuperacion: {', '.join(RERANKERS)}. Default: ninguno.",
+	)
 
 	args = parser.parse_args()
 
@@ -68,7 +75,10 @@ def main():
 	else:
 		filas = semantica
 
-	imprimir_resultados(args.query, args.modo, filas)
+	if args.reranker:
+		filas = rerank(args.query, filas, args.reranker)
+
+	imprimir_resultados(args.query, args.modo, filas, reranker=args.reranker)
 	guardar_resultado(args, filas)
 
 
@@ -108,8 +118,9 @@ def guardar_resultado(args, filas):
 		print(f"[ERROR] No se pudo guardar el resultado: {e}")
 
 
-def imprimir_resultados(query, modo, filas):
-	print(f"\nResultados para la consulta: '{query}' (modo: {modo}):")
+def imprimir_resultados(query, modo, filas, reranker=None):
+	reranker_txt = f", reranker: {reranker}" if reranker else ""
+	print(f"\nResultados para la consulta: '{query}' (modo: {modo}{reranker_txt}):")
 	if not filas:
 		print("Sin resultados.")
 		return
@@ -119,6 +130,7 @@ def imprimir_resultados(query, modo, filas):
 		chunk_idx = fila.get("chunk_idx")
 		chunk_txt = f" [chunk {chunk_idx}]" if chunk_idx is not None else ""
 		score = fila.get("score")
+		score_rerank = fila.get("score_rerank")
 
 		if modo in ("rrf", "wrrf"):
 			score_txt = f"RRF: {score:.6f}" if isinstance(score, (float, int)) else "RRF: n/a"
@@ -138,9 +150,10 @@ def imprimir_resultados(query, modo, filas):
 			score_txt = f"Coseno: {score:.4f}" if isinstance(score, (float, int)) else "Coseno: n/a"
 			detalle = None
 
+		rerank_txt = f" | rerank: {score_rerank:.4f}" if score_rerank is not None else ""
 		texto = fila.get("texto", "")
 		preview = texto[:500] + ("..." if len(texto) > 500 else "")
-		print(f"{i}. {titulo}{chunk_txt} — {score_txt}")
+		print(f"{i}. {titulo}{chunk_txt} — {score_txt}{rerank_txt}")
 		if detalle:
 			print(detalle)
 		print(f"   {preview}\n")
