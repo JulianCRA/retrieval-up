@@ -193,6 +193,8 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	Import perezoso para que el solo conteo de tokens no requiera torch.
 	"""
 	import logging
+	import sys
+	import warnings
 	from sentence_transformers import SentenceTransformer
 
 	spec = get_spec(embedder_id)
@@ -200,8 +202,15 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	if spec.trust_remote_code:
 		kwargs["trust_remote_code"] = True
 
-	# Suprimir mensajes de advertencia ruidosos de las librerias subyacentes
-	# (p.ej. "flash_attn is not installed") durante la carga del modelo.
+	_PRINT_SUPPRESS = {"flash_attn is not installed"}
+
+	class _FilteredStdout:
+		def write(self, s):
+			if not any(p in s for p in _PRINT_SUPPRESS):
+				sys.__stdout__.write(s)
+		def flush(self):
+			sys.__stdout__.flush()
+
 	_loggers = [
 		logging.getLogger(name)
 		for name in ("transformers", "sentence_transformers", "torch")
@@ -209,8 +218,14 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	_prev_levels = [lg.level for lg in _loggers]
 	for lg in _loggers:
 		lg.setLevel(logging.ERROR)
-	try:
-		return SentenceTransformer(spec.hf_id, **kwargs)
-	finally:
-		for lg, lvl in zip(_loggers, _prev_levels):
-			lg.setLevel(lvl)
+
+	_prev_stdout = sys.stdout
+	sys.stdout = _FilteredStdout()
+	with warnings.catch_warnings():
+		warnings.filterwarnings("ignore", message=".*flash_attn.*")
+		try:
+			return SentenceTransformer(spec.hf_id, **kwargs)
+		finally:
+			sys.stdout = _prev_stdout
+			for lg, lvl in zip(_loggers, _prev_levels):
+				lg.setLevel(lvl)

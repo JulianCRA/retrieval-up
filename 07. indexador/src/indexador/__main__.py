@@ -13,9 +13,6 @@ import importlib
 
 from compartido.bm25 import tokenizar, tokens_a_texto
 
-
-from compartido.bm25 import tokenizar, tokens_a_texto
-
 def _parse_tag(valor: str) -> tuple[str, str]:
 	"""Parsea 'CLAVE=VALOR' y aborta si el formato es incorrecto."""
 	if "=" not in valor:
