@@ -86,7 +86,7 @@ def buscar(nombre_embedder, query, modo, top_k=5):
 	elif modo == "denso":
 		vector_query = vectorizar_query(query, tabla.name)
 		return busqueda_semantica(tabla, vector_query, top_k), None
-	elif modo == "rrf" or modo == "hibrido":
+	elif modo in ("rrf", "wrrf", "hibrido"):
 		tokens_query = tokenizar_query_bm25(query)
 		vector_query = vectorizar_query(query, tabla.name)
 		return busqueda_semantica(tabla, vector_query, top_k*FACTOR_OVERSAMPLING), busqueda_sintactica(tabla, tokens_query, top_k*FACTOR_OVERSAMPLING)

@@ -4,11 +4,11 @@ from compartido.embedders import listar_ids
 from compartido.rutas import DESCARGAS_DIR
 
 from recuperador.busqueda import buscar
-from recuperador.fusionado import rrf
+from recuperador.fusionado import rrf, wrrf
 
 RESULTADOS_DIR = DESCARGAS_DIR / "resultados"
 
-MODOS = ["rrf", "denso", "bm25"]
+MODOS = ["rrf", "wrrf", "denso", "bm25"]
 
 
 def main():
@@ -27,7 +27,14 @@ def main():
 		"--modo",
 		default="denso",
 		choices=MODOS,
-		help="rrf (fusion de ranks densa+BM25), denso (solo coseno) o bm25 (solo keywords). Default: denso.",
+		help="rrf (fusion de ranks densa+BM25), wrrf (rrf ponderado), denso (solo coseno) o bm25 (solo keywords). Default: denso.",
+	)
+	parser.add_argument(
+		"--peso-semantica",
+		type=float,
+		default=0.7,
+		dest="peso_semantica",
+		help="Peso del recuperador semantico en wrrf (0.0-1.0, default: 0.7).",
 	)
 	parser.add_argument(
 		"--top-k",
@@ -54,11 +61,13 @@ def main():
 
 	if args.modo in ("rrf", "hibrido"):
 		filas = rrf(semantica, sintactica, args.top_k)
+	elif args.modo == "wrrf":
+		filas = wrrf(semantica, sintactica, args.top_k, peso_semantica=args.peso_semantica)
 	elif args.modo == "bm25":
 		filas = sintactica
 	else:
 		filas = semantica
-		
+
 	imprimir_resultados(args.query, args.modo, filas)
 
 	
@@ -69,17 +78,35 @@ def imprimir_resultados(query, modo, filas):
 		print("Sin resultados.")
 		return
 
-	score_label = "BM25" if modo == "bm25" else "Coseno"
-
 	for i, fila in enumerate(filas, start=1):
 		titulo = fila.get("titulo") or fila.get("fuente") or "(sin titulo)"
 		chunk_idx = fila.get("chunk_idx")
 		chunk_txt = f" [chunk {chunk_idx}]" if chunk_idx is not None else ""
 		score = fila.get("score")
-		score_txt = f"{score_label}: {score:.4f}" if isinstance(score, (float, int)) else f"{score_label}: n/a"
+
+		if modo in ("rrf", "wrrf"):
+			score_txt = f"RRF: {score:.6f}" if isinstance(score, (float, int)) else "RRF: n/a"
+			scores_origen = fila.get("scores_origen", {})
+			ranks_origen = fila.get("ranks_origen", {})
+			score_denso = scores_origen.get("denso")
+			score_bm25 = scores_origen.get("bm25")
+			rank_denso = ranks_origen.get("denso")
+			rank_bm25 = ranks_origen.get("bm25")
+			origen_denso = f"coseno={score_denso:.4f} (rank {rank_denso})" if score_denso is not None else "ausente"
+			origen_bm25 = f"bm25={score_bm25:.4f} (rank {rank_bm25})" if score_bm25 is not None else "ausente"
+			detalle = f"   denso: {origen_denso} | sintactica: {origen_bm25}"
+		elif modo == "bm25":
+			score_txt = f"BM25: {score:.4f}" if isinstance(score, (float, int)) else "BM25: n/a"
+			detalle = None
+		else:
+			score_txt = f"Coseno: {score:.4f}" if isinstance(score, (float, int)) else "Coseno: n/a"
+			detalle = None
+
 		texto = fila.get("texto", "")
 		preview = texto[:500] + ("..." if len(texto) > 500 else "")
 		print(f"{i}. {titulo}{chunk_txt} — {score_txt}")
+		if detalle:
+			print(detalle)
 		print(f"   {preview}\n")
 
 	
