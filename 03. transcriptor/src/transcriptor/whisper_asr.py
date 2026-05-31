@@ -2,14 +2,14 @@ from faster_whisper import BatchedInferencePipeline, WhisperModel
 import soundfile as sf
 import time
 
-from compartido.rutas import DESCARGAS_DIR
+from compartido.rutas import MODELOS_WHISPER_DIR
 from compartido.utils import cronometrar, crear_perfil_hardware
 from compartido.json_utils import cargar_archivo, guardar_archivo
 
 from .chunks import obtener_fragmentos_asr
 
 
-MODELOS_DIR = DESCARGAS_DIR / "modelos" / "whisper"
+MODELOS_DIR = MODELOS_WHISPER_DIR
 
 PERFIL_WHISPER = {
 	"padding": 0.18,

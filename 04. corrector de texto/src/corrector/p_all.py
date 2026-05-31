@@ -1,9 +1,9 @@
-from compartido.rutas import DESCARGAS_DIR
+from compartido.rutas import MODELOS_PUNCTUATE_ALL_DIR
 from compartido.utils import cronometrar
 
 
 MODEL_ID = "kredor/punctuate-all"
-CACHE_DIR = DESCARGAS_DIR / "modelos" / "kredor"
+CACHE_DIR = MODELOS_PUNCTUATE_ALL_DIR
 SPACY_MODEL_ID = "es_core_news_lg"
 _CHUNK_WORDS = 180  # stay safely under the 512-token limit
 

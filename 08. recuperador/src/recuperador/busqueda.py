@@ -3,9 +3,7 @@ import lancedb
 from compartido.embedders import cargar_sentence_transformer, get_spec
 from compartido.bm25 import tokenizar, tokens_a_texto
 
-from compartido.rutas import DESCARGAS_DIR
-
-INDICE_DIR = DESCARGAS_DIR / "indice"
+from compartido.rutas import INDICE_DIR
 
 FACTOR_OVERSAMPLING = 4
 	

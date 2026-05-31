@@ -5,7 +5,7 @@ import sys
 import numpy as np
 
 from compartido import json_utils as ju
-from compartido.rutas import DESCARGAS_DIR
+from compartido.rutas import DESCARGAS_DIR, INDICE_DIR
 from compartido.embedders import listar_ids
 from compartido.utils import cronometrar
 
@@ -14,9 +14,7 @@ import importlib
 from compartido.bm25 import tokenizar, tokens_a_texto
 
 
-# Directorio por defecto del indice (default de --db para el backend lance).
-INDICE_DIR = DESCARGAS_DIR / "indice"
-
+from compartido.bm25 import tokenizar, tokens_a_texto
 
 def _parse_tag(valor: str) -> tuple[str, str]:
 	"""Parsea 'CLAVE=VALOR' y aborta si el formato es incorrecto."""

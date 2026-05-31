@@ -5,12 +5,12 @@ import torch
 from tqdm import tqdm
 from transformers import AutoProcessor, CohereAsrForConditionalGeneration
 
-from compartido.rutas import DESCARGAS_DIR
+from compartido.rutas import MODELOS_COHERE_DIR
 from compartido.utils import cronometrar, crear_perfil_hardware
 from compartido.json_utils import cargar_archivo, guardar_archivo
 from .chunks import obtener_fragmentos_asr
 
-MODELOS_DIR = DESCARGAS_DIR / "modelos" / "cohere"
+MODELOS_DIR = MODELOS_COHERE_DIR
 MODEL_ID = "CohereLabs/cohere-transcribe-03-2026"
 
 PERFIL_COHERE = {

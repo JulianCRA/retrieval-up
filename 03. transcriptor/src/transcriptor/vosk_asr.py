@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.request import urlretrieve
 
-from compartido.rutas import DESCARGAS_DIR
+from compartido.rutas import MODELOS_VOSK_DIR
 from compartido.json_utils import cargar_archivo, guardar_archivo
 from compartido.utils import crear_perfil_hardware, cronometrar
 from .chunks import obtener_fragmentos_asr
@@ -13,7 +13,7 @@ import wave
 import vosk
 from tqdm import tqdm
 
-MODELOS_DIR = DESCARGAS_DIR / "modelos" / "vosk"
+MODELOS_DIR = MODELOS_VOSK_DIR
 
 MODELO_ES = "vosk-model-es-0.42" # opcion: vosk-model-small-es-0.42 (más ligero pero menos preciso)
 MODELO_ES_URL = f"https://alphacephei.com/vosk/models/{MODELO_ES}.zip"

@@ -9,9 +9,9 @@ modulo centraliza:
 from dataclasses import dataclass, field
 from typing import Optional
 
-from compartido.rutas import DESCARGAS_DIR
+from compartido.rutas import MODELOS_EMBEDDINGS_DIR
 
-MODELOS_DIR = DESCARGAS_DIR / "modelos" / "embeddings"
+MODELOS_DIR = MODELOS_EMBEDDINGS_DIR
 MODELOS_DIR.mkdir(parents=True, exist_ok=True)
 
 
