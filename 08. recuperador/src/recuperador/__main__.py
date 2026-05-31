@@ -67,9 +67,9 @@ def main():
 	semantica, sintactica = buscar(args.embedder, args.query, args.modo, args.top_k)
 
 	if args.modo in ("rrf", "hibrido"):
-		filas = rrf(semantica, sintactica, args.top_k)
+		filas = rrf(semantica, sintactica)
 	elif args.modo == "wrrf":
-		filas = wrrf(semantica, sintactica, args.top_k, peso_semantica=args.peso_semantica)
+		filas = wrrf(semantica, sintactica, peso_semantica=args.peso_semantica)
 	elif args.modo == "bm25":
 		filas = sintactica
 	else:
@@ -77,6 +77,8 @@ def main():
 
 	if args.reranker:
 		filas = rerank(args.query, filas, args.reranker)
+
+	filas = filas[:args.top_k]
 
 	imprimir_resultados(args.query, args.modo, filas, reranker=args.reranker)
 	guardar_resultado(args, filas)

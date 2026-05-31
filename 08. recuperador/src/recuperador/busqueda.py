@@ -47,7 +47,7 @@ def tokenizar_query_bm25(query: str) -> str:
 def busqueda_sintactica(tabla, tokens_query, top_k=5):
 	filas = (
 		tabla.search(tokens_query, query_type="fts")
-		.limit(top_k)
+		.limit(top_k * FACTOR_OVERSAMPLING)
 		.to_list()
 	)
 
@@ -63,7 +63,7 @@ def busqueda_semantica(tabla, embed_query, top_k=5):
 	filas = (
 		tabla.search(embed_query)
 		.distance_type("cosine")
-		.limit(top_k)
+		.limit(top_k * FACTOR_OVERSAMPLING)
 		.to_list()
 	)
 
@@ -87,6 +87,6 @@ def buscar(nombre_embedder, query, modo, top_k=5):
 	elif modo in ("rrf", "wrrf", "hibrido"):
 		tokens_query = tokenizar_query_bm25(query)
 		vector_query = vectorizar_query(query, tabla.name)
-		return busqueda_semantica(tabla, vector_query, top_k*FACTOR_OVERSAMPLING), busqueda_sintactica(tabla, tokens_query, top_k*FACTOR_OVERSAMPLING)
+		return busqueda_semantica(tabla, vector_query, top_k), busqueda_sintactica(tabla, tokens_query, top_k)
         
 	return None, None
