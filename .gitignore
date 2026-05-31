@@ -18,3 +18,4 @@ indice/
 
 *.egg-info/
 notas.md
+reconstruir.py
