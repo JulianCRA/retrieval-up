@@ -63,12 +63,13 @@ def main():
 		args.backend = "lance"
 
 	
-	embed_query = obtener_embed_query(args.query, args.embedder)
-	buscar(args, embed_query)
-
+	vector_query = vectorizar_query(args.query, args.embedder)
+	tabla = abrir_tabla(args.embedder)
+	res = buscar(tabla, vector_query)
+	imprimir_resultados(args.query, args.modo, res)
 
 		
-def obtener_embed_query(query, embedder_id):
+def vectorizar_query(query, embedder_id):
 	modelo = cargar_sentence_transformer(embedder_id)
 	config = get_spec(embedder_id)
 	query = query.strip()
@@ -101,21 +102,37 @@ def abrir_tabla(nombre):
 	
 	return tabla
 
-def buscar(args, embed_query):
-	query = args.query.strip()
-	top_k = args.top_k
-	modo = args.modo
-	peso = args.peso_denso
-	nombre_modelo = args.embedder
+def buscar(tabla, embed_query, top_k=5):
+	filas = (
+		tabla.search(embed_query)
+		.distance_type("cosine")
+		.limit(top_k)
+		.to_list()
+	)
 
-	tabla = abrir_tabla(nombre_modelo)
-	filas = tabla.search(embed_query).limit(top_k).to_list()
+	resultados = []
+	for fila in filas:
+		item = dict(fila)
+		distancia = item.get("_distance")
+		item["score"] = None if distancia is None else 1.0 - float(distancia)
+		resultados.append(item)
+	return resultados
 
-	print(f"Resultados para la consulta: '{query}' (modo: {modo}, peso denso: {peso}):")
+def imprimir_resultados(query, modo, filas):
+	print(f"\nResultados para la consulta: '{query}' (modo: {modo}):")
+	if not filas:
+		print("Sin resultados.")
+		return
+
 	for i, fila in enumerate(filas, start=1):
-		texto = fila["texto"]
-		sim = 1 - fila["_distance"]
-		print(f"{i}. (Similitud: {sim:.4f}) {texto[:500]}{'...' if len(texto) > 500 else ''}\n")
+		texto = fila.get("texto", "")
+		score = fila.get("score")
+		score_txt = f"Score: {score:.4f}" if isinstance(score, (float, int)) else "Score: n/a"
+
+		
+		preview = texto[:500] + ("..." if len(texto) > 500 else "")
+		print(f"{i}. ({score_txt}) {preview}\n")
+
 	
 
 
