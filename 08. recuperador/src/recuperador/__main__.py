@@ -3,6 +3,8 @@ import argparse
 from compartido.embedders import listar_ids, cargar_sentence_transformer, listar_ids, get_spec
 from compartido.rutas import DESCARGAS_DIR
 
+from indexador.bm25 import tokenizar, tokens_a_texto
+
 import lancedb
 
 RESULTADOS_DIR = DESCARGAS_DIR / "resultados"
@@ -64,8 +66,9 @@ def main():
 
 	
 	vector_query = vectorizar_query(args.query, args.embedder)
+	tokens_query = tokenizar_query_bm25(args.query)
 	tabla = abrir_tabla(args.embedder)
-	res = buscar(tabla, vector_query)
+	res = buscar(tabla, tokens_query)
 	imprimir_resultados(args.query, args.modo, res)
 
 		
@@ -83,6 +86,10 @@ def vectorizar_query(query, embedder_id):
 
 	vector = vector.astype("float32").tolist()
 	return vector
+
+def tokenizar_query_bm25(query: str) -> str:
+	tokens = tokenizar(query)
+	return tokens_a_texto(tokens)
 
 def abrir_tabla(nombre):
 	db = lancedb.connect(INDICE_DIR)
@@ -102,7 +109,22 @@ def abrir_tabla(nombre):
 	
 	return tabla
 
-def buscar(tabla, embed_query, top_k=5):
+def buscar(tabla, tokens_query, top_k=5):
+	filas = (
+		tabla.search(tokens_query, query_type="fts")
+		.limit(top_k)
+		.to_list()
+	)
+
+	resultados = []
+	for fila in filas:
+		item = dict(fila)
+		score = item.get("_score")
+		item["score"] = None if score is None else float(score)
+		resultados.append(item)
+	return resultados
+
+def busqueda_semantica(tabla, embed_query, top_k=5):
 	filas = (
 		tabla.search(embed_query)
 		.distance_type("cosine")
