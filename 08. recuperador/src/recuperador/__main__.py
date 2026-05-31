@@ -1,18 +1,13 @@
 import argparse
 
-from compartido.embedders import listar_ids, cargar_sentence_transformer, listar_ids, get_spec
+from compartido.embedders import listar_ids
 from compartido.rutas import DESCARGAS_DIR
 
-from indexador.bm25 import tokenizar, tokens_a_texto
-
-import lancedb
+from recuperador.busqueda import buscar
 
 RESULTADOS_DIR = DESCARGAS_DIR / "resultados"
 
-
-INDICE_DIR = DESCARGAS_DIR / "indice"
-MODOS = ["hibrido", "denso", "bm25"]
-UMBRAL_CONFIANZA = 0.20
+MODOS = ["rrf", "denso", "bm25"]
 
 
 def main():
@@ -29,9 +24,9 @@ def main():
 	)
 	parser.add_argument(
 		"--modo",
-		default="hibrido",
+		default="denso",
 		choices=MODOS,
-		help="hibrido (weighted fusion densa+BM25), denso (solo coseno) o bm25 (solo keywords). Default: hibrido.",
+		help="rrf (fusion de ranks densa+BM25), denso (solo coseno) o bm25 (solo keywords). Default: denso.",
 	)
 	parser.add_argument(
 		"--top-k",
@@ -39,13 +34,6 @@ def main():
 		default=5,
 		dest="top_k",
 		help="Numero de resultados a devolver (default: 5).",
-	)
-	parser.add_argument(
-		"--peso-denso",
-		type=float,
-		default=0.5,
-		dest="peso_denso",
-		help="Peso de la busqueda densa en modo hibrido (0.0-1.0). El resto va a BM25. Default: 0.5.",
 	)
 	parser.add_argument(
 		"--backend",
@@ -56,89 +44,16 @@ def main():
 
 	args = parser.parse_args()
 
-	if args.modo == "hibrido" and not (0.0 <= args.peso_denso <= 1.0):
-		print("Error: --peso-denso debe estar entre 0.0 y 1.0.")
-		return
-
 	if args.backend != "lance":
 		print(f"Backend '{args.backend}' no soportado en esta version. haciendo fallback a 'lance'.")
 		args.backend = "lance"
 
 	
-	vector_query = vectorizar_query(args.query, args.embedder)
-	tokens_query = tokenizar_query_bm25(args.query)
-	tabla = abrir_tabla(args.embedder)
-	res = buscar(tabla, tokens_query)
-	imprimir_resultados(args.query, args.modo, res)
+	semantica, sintactica = buscar(args.embedder, args.query, args.modo, args.top_k)
+	filas = sintactica if args.modo == "bm25" else semantica
+	imprimir_resultados(args.query, args.modo, filas)
 
-		
-def vectorizar_query(query, embedder_id):
-	modelo = cargar_sentence_transformer(embedder_id)
-	config = get_spec(embedder_id)
-	query = query.strip()
-	if config.prefijo_query:
-		query = config.prefijo_query + query
 	
-	if config.tarea_query:
-		vector = modelo.encode(query, normalize_embeddings=True, task=config.tarea_query)
-	else:
-		vector = modelo.encode(query, normalize_embeddings=True)
-
-	vector = vector.astype("float32").tolist()
-	return vector
-
-def tokenizar_query_bm25(query: str) -> str:
-	tokens = tokenizar(query)
-	return tokens_a_texto(tokens)
-
-def abrir_tabla(nombre):
-	db = lancedb.connect(INDICE_DIR)
-	tablas = list(db.list_tables().tables)
-
-	print(f"Tablas disponibles en el indice: {tablas}")
-	if nombre not in tablas:
-		print(f"Error: No se encontro una tabla para el embedder '{nombre}' en el indice.")
-		exit(1)
-		return None
-
-	tabla = db.open_table(nombre)
-	if tabla.count_rows() == 0:
-		print(f"Error: La tabla para el embedder '{nombre}' esta vacia.")
-		exit(1)
-		return None
-	
-	return tabla
-
-def buscar(tabla, tokens_query, top_k=5):
-	filas = (
-		tabla.search(tokens_query, query_type="fts")
-		.limit(top_k)
-		.to_list()
-	)
-
-	resultados = []
-	for fila in filas:
-		item = dict(fila)
-		score = item.get("_score")
-		item["score"] = None if score is None else float(score)
-		resultados.append(item)
-	return resultados
-
-def busqueda_semantica(tabla, embed_query, top_k=5):
-	filas = (
-		tabla.search(embed_query)
-		.distance_type("cosine")
-		.limit(top_k)
-		.to_list()
-	)
-
-	resultados = []
-	for fila in filas:
-		item = dict(fila)
-		distancia = item.get("_distance")
-		item["score"] = None if distancia is None else 1.0 - float(distancia)
-		resultados.append(item)
-	return resultados
 
 def imprimir_resultados(query, modo, filas):
 	print(f"\nResultados para la consulta: '{query}' (modo: {modo}):")
@@ -146,18 +61,20 @@ def imprimir_resultados(query, modo, filas):
 		print("Sin resultados.")
 		return
 
-	for i, fila in enumerate(filas, start=1):
-		texto = fila.get("texto", "")
-		score = fila.get("score")
-		score_txt = f"Score: {score:.4f}" if isinstance(score, (float, int)) else "Score: n/a"
+	score_label = "BM25" if modo == "bm25" else "Coseno"
 
-		
+	for i, fila in enumerate(filas, start=1):
+		titulo = fila.get("titulo") or fila.get("fuente") or "(sin titulo)"
+		chunk_idx = fila.get("chunk_idx")
+		chunk_txt = f" [chunk {chunk_idx}]" if chunk_idx is not None else ""
+		score = fila.get("score")
+		score_txt = f"{score_label}: {score:.4f}" if isinstance(score, (float, int)) else f"{score_label}: n/a"
+		texto = fila.get("texto", "")
 		preview = texto[:500] + ("..." if len(texto) > 500 else "")
-		print(f"{i}. ({score_txt}) {preview}\n")
+		print(f"{i}. {titulo}{chunk_txt} — {score_txt}")
+		print(f"   {preview}\n")
 
 	
-
-
 
 if __name__ == "__main__":
 	main()
