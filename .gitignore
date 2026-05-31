@@ -12,6 +12,9 @@ data/
 outputs/
 descargas/
 docs/
+modelos/
+indice/
+
 
 *.egg-info/
 notas.md
