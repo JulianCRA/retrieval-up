@@ -5,8 +5,6 @@ modulo centraliza:
   - metadatos por modelo (hf_id, ventana, dim, prefijos, etc.)
   - un `Sizer` que cuenta tokens REALES con el tokenizador del modelo
   - una factoria `cargar_sentence_transformer` para evaluar embeddings
-
-Los modelos se cachean en `descargas/modelos/embeddings/` (HF cache compartido).
 """
 from dataclasses import dataclass, field
 from typing import Optional
@@ -38,7 +36,7 @@ EMBEDDERS: dict[str, EmbedderSpec] = {
 		id_corto="qwen3-0.6b",
 		hf_id="Qwen/Qwen3-Embedding-0.6B",
 		max_seq_len=32768,
-		chunk_default=256,
+		chunk_default=512,
 		dim=1024,
 		prefijo_query = (
 			"Instruct: Match the search query with relevant passages\n"
@@ -55,7 +53,7 @@ EMBEDDERS: dict[str, EmbedderSpec] = {
 		id_corto="bge-m3",
 		hf_id="BAAI/bge-m3",
 		max_seq_len=8192,
-		chunk_default=256,
+		chunk_default=512,
 		dim=1024,
 		notas=(
 			"Fuerte: calidad excelente multilingue (>100 idiomas, espanol incluido), "
@@ -102,7 +100,7 @@ EMBEDDERS: dict[str, EmbedderSpec] = {
 		id_corto="jina-v3",
 		hf_id="jinaai/jina-embeddings-v3",
 		max_seq_len=8192,
-		chunk_default=256,
+		chunk_default=512,
 		dim=1024,
 		tarea_passage="retrieval.passage",
 		tarea_query="retrieval.query",
