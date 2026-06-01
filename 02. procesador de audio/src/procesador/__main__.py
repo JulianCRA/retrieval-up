@@ -1,10 +1,11 @@
 import argparse
+import gc
 import sys
 from pathlib import Path
 
 from compartido import json_utils as ju
 from compartido.rutas import DESCARGAS_DIR
-from compartido.utils import cronometrar, crear_perfil_hardware
+from compartido.utils import cronometrar, crear_perfil_hardware, cronometro_activo, medir
 
 import soundfile as sf
 import noisereduce as nr
@@ -72,61 +73,74 @@ Métodos de detección de voz (VAD):
     procesar(args.hashes, args.metodo)
 
 def procesar(hashes: list[str], metodo=None):
-    perfil = crear_perfil_hardware(forzado={"device": "cpu"})
-    for hash in hashes:
-        procesar_hash(hash, metodo, perfil=perfil)
+    from concurrent.futures import ProcessPoolExecutor
+    from procesador.vad_silero import _init_worker
 
-def procesar_hash(hash, metodo=None, perfil=None):
+    perfil = crear_perfil_hardware(forzado={"device": "cpu"})
+    executor = None
+    if metodo == "silero":
+        import psutil
+        n_workers = psutil.cpu_count(logical=False)
+        executor = ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker)
+        print(f"[INFO] Pool compartido de {n_workers} workers Silero creado para {len(hashes)} hash(es).")
+
+    fallos: list[str] = []
+    try:
+        for hash in hashes:
+            try:
+                procesar_hash(hash, metodo, perfil=perfil, executor=executor)
+            except Exception as e:
+                print(f"[ERROR] Hash '{hash}': {e}")
+                fallos.append(hash)
+            finally:
+                gc.collect()
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=True)
+
+    if fallos:
+        print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
+        sys.exit(1)
+
+def procesar_hash(hash, metodo=None, perfil=None, executor=None):
     folder = DESCARGAS_DIR / hash
     ruta_info = folder / "info.json"
     info = ju.cargar_archivo(ruta_info)
     if info is None:
-        print(f"[ERROR] No se encontró información para el hash '{hash}'.")
-        sys.exit(1)
-    procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo, folder=folder, perfil=perfil)
+        raise RuntimeError(f"No se encontró información para el hash '{hash}'.")
+    procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo, folder=folder, perfil=perfil, executor=executor)
 
-def procesar_archivo(ruta, metodo=None, folder=None, perfil=None):
-    audio, samplerate = sf.read(ruta)
-    duracion = len(audio) / samplerate
+def procesar_archivo(ruta, metodo=None, folder=None, perfil=None, executor=None):
+    with cronometro_activo() as crono:
+        with medir("lectura_audio"):
+            audio, samplerate = sf.read(ruta)
+        duracion = len(audio) / samplerate
 
-    print(f"Procesando '{ruta}' - Duración: {duracion:.2f} segundos ({int(duracion / 3600)}:{int((duracion % 3600) / 60):02d}:{int(duracion % 60):02d}:{int((duracion * 1000) % 1000):03d})")
+        print(f"Procesando '{ruta}' - Duracion: {duracion:.2f} segundos ({int(duracion / 3600)}:{int((duracion % 3600) / 60):02d}:{int(duracion % 60):02d}:{int((duracion * 1000) % 1000):03d})")
 
-    audio = normalizar_volumen(audio)
-    tiempo_norm_vol = normalizar_volumen.elapsed
-    audio = reducir_ruido(audio, samplerate, perfil=perfil)
-    tiempo_reduccion = reducir_ruido.elapsed
-    audio= normalizar_picos(audio)
-    tiempo_norm_picos = normalizar_picos.elapsed
+        audio = normalizar_volumen(audio)
+        audio = reducir_ruido(audio, samplerate, perfil=perfil)
+        audio = normalizar_picos(audio)
 
-    segmentos = None
+        segmentos = None
 
-    if metodo is not None:
-        print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
-        segmentos = vad(audio, samplerate, metodo=metodo)
-        tiempo_vad = vad.elapsed
-        segmentos = procesar_segmentos(segmentos, min_gap=0.3)
+        if metodo is not None:
+            print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
+            segmentos = vad(audio, samplerate, metodo=metodo, executor=executor)
+            segmentos = procesar_segmentos(segmentos, min_gap=0.3)
+            with medir("audio_prueba"):
+                generar_audio_de_prueba(audio, samplerate, segmentos, folder)
 
-        ## generar audio procesado con solo los segmentos de voz detectados
-        generar_audio_de_prueba(audio, samplerate, segmentos, folder)
-       
-        
+        ruta_nueva = folder / "audio_procesado.wav"
+        with medir("escritura_audio"):
+            sf.write(ruta_nueva, audio, samplerate)
+        print(f"Archivo procesado y guardado: '{ruta_nueva}'")
 
-    ruta_nueva = folder / "audio_procesado.wav"
-    sf.write(ruta_nueva, audio, samplerate)
-    print(f"Archivo procesado y guardado: '{ruta_nueva}'")
-
-    # actualizar el nodo con la información del procesamiento
-    if folder is not None:
-        tiempos = {
-            "normalizacion_volumen": tiempo_norm_vol,
-            "reduccion_ruido": tiempo_reduccion,
-            "normalizacion_picos": tiempo_norm_picos,
-            "vad": tiempo_vad if segmentos else 0
-        }
-        guardar_datos_procesamiento(folder, metodo, segmentos, tiempos, ruta_nueva)
+        if folder is not None:
+            guardar_datos_procesamiento(folder, metodo, segmentos, crono.resumen(), ruta_nueva)
 
 
-@cronometrar(etiqueta="Reduccion de ruido")
+@cronometrar(etiqueta="reduccion_ruido")
 def reducir_ruido(audio, samplerate, perfil=None):
     print(f"[INFO] Aplicando reducción de ruido...")
     if perfil is None:
@@ -153,7 +167,7 @@ def reducir_ruido(audio, samplerate, perfil=None):
         
     return audio
 
-@cronometrar(etiqueta="Normalización de picos")
+@cronometrar(etiqueta="normalizacion_picos")
 def normalizar_picos(audio):
     print(f"[INFO] Normalizando picos de audio...")
     # ajustar el audio para que el pico máximo esté a -1 dBFS
@@ -165,7 +179,7 @@ def normalizar_picos(audio):
 
     return audio * (target_linear / picos)
 
-@cronometrar(etiqueta="Normalización de volumen")
+@cronometrar(etiqueta="normalizacion_volumen")
 def normalizar_volumen(audio, umbral_db=-20.0):
     print(f"[INFO] Normalizando volumen del audio...")
     rms = np.sqrt(np.mean(audio**2))
@@ -175,12 +189,12 @@ def normalizar_volumen(audio, umbral_db=-20.0):
     factor_normalizacion = umbral_lineal / rms
     return audio * factor_normalizacion
 
-@cronometrar(etiqueta="VAD")
-def vad(audio, samplerate, metodo="energia"):
+@cronometrar(etiqueta="vad")
+def vad(audio, samplerate, metodo="energia", executor=None):
     if metodo == "energia":
         return vad_energia(audio, samplerate)
     elif metodo == "silero":
-        return vad_silero(audio, samplerate)
+        return vad_silero(audio, samplerate, executor=executor)
     elif metodo == "webrtc":
         return vad_webrtc(audio, samplerate)
     else:
@@ -223,11 +237,7 @@ def guardar_datos_procesamiento(folder, metodo, segmentos, tiempos, ruta_nueva):
         "metodo_vad": metodo,
         "cantidad_segmentos": len(segmentos) if segmentos else 0,
         "archivo_segmentos": str(folder / "segmentos.json") if segmentos else None,
-        "tiempo_normalizacion_volumen": tiempos.get("normalizacion_volumen", 0),
-        "tiempo_reduccion_ruido": tiempos.get("reduccion_ruido", 0),
-        "tiempo_normalizacion_picos": tiempos.get("normalizacion_picos", 0),
-        "tiempo_vad": tiempos.get("vad", 0),
-        "tiempo_total": sum(tiempos.values())
+        "tiempos": tiempos,
     }
 
     ok = ju.guardar_nodo(ruta_info, "procesamiento", data)

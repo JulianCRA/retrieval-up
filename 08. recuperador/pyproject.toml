@@ -3,20 +3,20 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "indexador"
+name = "recuperador"
 version = "0.1.0"
-description = "Construye el indice hibrido (denso + BM25) a partir de embeddings y fragmentos."
+description = "Busqueda hibrida (densa + BM25) sobre el indice vectorial."
 requires-python = ">=3.11,<3.13"
 dependencies = [
 	"compartido",
 	"lancedb>=0.14",
-	"pyarrow>=17.0",
 	"tantivy>=0.22",
+	"sentence-transformers>=3.0,<4.0",
 	"numpy>=1.24",
 ]
 
 [project.scripts]
-indexar = "indexador.__main__:main"
+recuperar = "recuperador.__main__:main"
 
 [tool.setuptools.package-dir]
 "" = "src"

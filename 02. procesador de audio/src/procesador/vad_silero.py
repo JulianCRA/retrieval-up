@@ -34,7 +34,7 @@ def _procesar_chunk(args):
     return [{"start": t["start"] + offset, "end": t["end"] + offset} for t in timestamps]
 
 
-def vad_silero(audio, samplerate, umbral=0.4, duracion_minima=0.25, duracion_silencio_minima=0.3, n_workers=None):
+def vad_silero(audio, samplerate, umbral=0.4, duracion_minima=0.25, duracion_silencio_minima=0.3, n_workers=None, executor=None):
     from concurrent.futures import ProcessPoolExecutor
 
     if samplerate != 16000:
@@ -64,8 +64,11 @@ def vad_silero(audio, samplerate, umbral=0.4, duracion_minima=0.25, duracion_sil
         for i in range(n_workers)
     ]
 
-    with ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker) as executor:
+    if executor is not None:
         results = list(executor.map(_procesar_chunk, args_list))
+    else:
+        with ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker) as pool:
+            results = list(pool.map(_procesar_chunk, args_list))
 
     timestamps = sorted(
         (t for chunk_result in results for t in chunk_result),
