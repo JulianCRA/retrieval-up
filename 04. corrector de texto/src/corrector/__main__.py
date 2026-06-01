@@ -40,25 +40,26 @@ def main():
 def procesar(hashes: list[str], backend: str = "silero", forzar_cpu: bool = False):
 	forzado = {"device": "cpu"} if forzar_cpu else None
 	perfil = crear_perfil_hardware(forzado=forzado)
-	# Pre-load model once before the loop.
-	apply_te = None
-	if backend == "silero":
-		import torch
-		from corrector.silero import cargar_silero_te
-		apply_te = cargar_silero_te()
-	elif backend == "p-all":
-		from corrector.p_all import _cargar
-		_cargar(device=perfil["device"])  # warm up global cache
+	# Model is loaded lazily inside procesar_hash, only for hashes that actually need correction.
 
+	fallos: list[str] = []
 	for hash_id in hashes:
-		procesar_hash(hash_id, backend=backend, apply_te=apply_te, perfil=perfil)
+		try:
+			procesar_hash(hash_id, backend=backend, perfil=perfil)
+		except Exception as e:
+			print(f"[ERROR] Hash '{hash_id}': {e}")
+			fallos.append(hash_id)
+
+	if fallos:
+		print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
+		sys.exit(1)
 
 
 def _texto_desde_segmentos(segmentos: list[dict]) -> str:
 	return " ".join(seg.get("texto", "") for seg in segmentos).strip()
 
 
-def procesar_hash(hash_id: str, backend: str = "silero", apply_te=None, perfil=None):
+def procesar_hash(hash_id: str, backend: str = "silero", perfil=None):
 	folder = DESCARGAS_DIR / hash_id
 	transcripciones_path = folder / "transcripciones.json"
 	correcciones_path = folder / "correcciones.json"
@@ -67,13 +68,11 @@ def procesar_hash(hash_id: str, backend: str = "silero", apply_te=None, perfil=N
 		with medir("lectura_transcripciones"):
 			data = ju.cargar_archivo(transcripciones_path)
 		if not data:
-			print(f"[ERROR] No se pudo cargar '{transcripciones_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se pudo cargar '{transcripciones_path}'.")
 
 		segmentos = data.get("transcripciones")
 		if not segmentos:
-			print(f"[ERROR] No se encontraron transcripciones en '{transcripciones_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se encontraron transcripciones en '{transcripciones_path}'.")
 
 		modelo_asr = data.get("modelo", "")
 		texto = data.get("texto") or _texto_desde_segmentos(segmentos)
@@ -101,9 +100,9 @@ def procesar_hash(hash_id: str, backend: str = "silero", apply_te=None, perfil=N
 			if ju.guardar_archivo(correcciones_path, resultado):
 				print(f"[OK] Correcciones guardadas en '{correcciones_path}'.")
 				return
-			print(f"[ERROR] No se pudo guardar '{correcciones_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se pudo guardar '{correcciones_path}'.")
 
+		# Model is loaded here, only for hashes that actually need correction.
 		if backend == "p-all":
 			from corrector.p_all import corregir_p_all
 			device = perfil["device"] if perfil else None
@@ -113,9 +112,8 @@ def procesar_hash(hash_id: str, backend: str = "silero", apply_te=None, perfil=N
 			texto_corregido = _procesar_p_all()
 		else:
 			import torch
-			if apply_te is None:
-				from corrector.silero import cargar_silero_te
-				apply_te = cargar_silero_te()
+			from corrector.silero import cargar_silero_te
+			apply_te = cargar_silero_te()  # no-op after first load (module-level singleton)
 			@cronometrar(etiqueta="correccion")
 			def _procesar_silero():
 				return apply_te(texto, lan="es")
@@ -145,8 +143,7 @@ def procesar_hash(hash_id: str, backend: str = "silero", apply_te=None, perfil=N
 			print(f"[OK] Correcciones guardadas en '{correcciones_path}'.")
 			return
 
-		print(f"[ERROR] No se pudo guardar '{correcciones_path}'.")
-		sys.exit(1)
+		raise RuntimeError(f"No se pudo guardar '{correcciones_path}'.")
 
 
 if __name__ == "__main__":
