@@ -77,6 +77,18 @@ def _cargar_modelo(params: dict):
     return processor, model
 
 
+_COHERE_CACHE: dict = {}
+
+
+def cargar_modelo(params: dict):
+    key = (params["device"], params["torch_dtype"])
+    if key in _COHERE_CACHE:
+        return _COHERE_CACHE[key]
+    result = _cargar_modelo(params)
+    _COHERE_CACHE[key] = result
+    return result
+
+
 @cronometrar(etiqueta="transcripcion")
 def transcribir_cohere(paths, idioma: str = "es", perfil=None):
     segmentos_raw = cargar_archivo(paths["segmentos"])["segmentos"]
@@ -85,7 +97,7 @@ def transcribir_cohere(paths, idioma: str = "es", perfil=None):
     hardware = perfil if perfil is not None else crear_perfil_hardware()
     params = _computar_parametros(len(spans), hardware)
 
-    processor, model = _cargar_modelo(params)
+    processor, model = cargar_modelo(params)
 
     audio_data, sr = sf.read(str(paths["audio"]), dtype="float32", always_2d=False)
 

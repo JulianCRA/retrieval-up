@@ -98,8 +98,11 @@ def serializar_transcripciones(segmentos):
     transcripciones.sort(key=lambda item: (item["inicio"], item["fin"]))
     return transcripciones
 
+_WHISPER_MODEL_CACHE: dict = {}
+
+
 @cronometrar(etiqueta="carga_modelo")
-def cargar_modelo_whisper(model_size_or_path, params):
+def _hacer_carga_modelo_whisper(model_size_or_path, params):
 	print(f"[INFO] 'whisper-{model_size_or_path}' en {params['device'].upper()} ({params['compute_type']})...")
 	model = WhisperModel(
 		model_size_or_path,
@@ -108,6 +111,16 @@ def cargar_modelo_whisper(model_size_or_path, params):
 		cpu_threads=params.get("cpu_threads", 1),
 		num_workers=params.get("num_workers", 1),
 	)
+	return model
+
+
+def cargar_modelo_whisper(model_size_or_path, params):
+	key = (model_size_or_path, params["device"], params["compute_type"],
+		   params.get("cpu_threads", 1), params.get("num_workers", 1))
+	if key in _WHISPER_MODEL_CACHE:
+		return _WHISPER_MODEL_CACHE[key]
+	model = _hacer_carga_modelo_whisper(model_size_or_path, params)
+	_WHISPER_MODEL_CACHE[key] = model
 	return model
 
 @cronometrar(etiqueta="transcripcion")
