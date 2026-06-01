@@ -20,3 +20,4 @@ resultados/
 *.egg-info/
 notas.md
 reconstruir.py
+entrypoint.py
