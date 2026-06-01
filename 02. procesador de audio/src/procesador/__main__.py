@@ -1,4 +1,5 @@
 import argparse
+import gc
 import sys
 from pathlib import Path
 
@@ -72,20 +73,44 @@ Métodos de detección de voz (VAD):
     procesar(args.hashes, args.metodo)
 
 def procesar(hashes: list[str], metodo=None):
-    perfil = crear_perfil_hardware(forzado={"device": "cpu"})
-    for hash in hashes:
-        procesar_hash(hash, metodo, perfil=perfil)
+    from concurrent.futures import ProcessPoolExecutor
+    from procesador.vad_silero import _init_worker
 
-def procesar_hash(hash, metodo=None, perfil=None):
+    perfil = crear_perfil_hardware(forzado={"device": "cpu"})
+    executor = None
+    if metodo == "silero":
+        import psutil
+        n_workers = psutil.cpu_count(logical=False)
+        executor = ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker)
+        print(f"[INFO] Pool compartido de {n_workers} workers Silero creado para {len(hashes)} hash(es).")
+
+    fallos: list[str] = []
+    try:
+        for hash in hashes:
+            try:
+                procesar_hash(hash, metodo, perfil=perfil, executor=executor)
+            except Exception as e:
+                print(f"[ERROR] Hash '{hash}': {e}")
+                fallos.append(hash)
+            finally:
+                gc.collect()
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=True)
+
+    if fallos:
+        print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
+        sys.exit(1)
+
+def procesar_hash(hash, metodo=None, perfil=None, executor=None):
     folder = DESCARGAS_DIR / hash
     ruta_info = folder / "info.json"
     info = ju.cargar_archivo(ruta_info)
     if info is None:
-        print(f"[ERROR] No se encontró información para el hash '{hash}'.")
-        sys.exit(1)
-    procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo, folder=folder, perfil=perfil)
+        raise RuntimeError(f"No se encontró información para el hash '{hash}'.")
+    procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo, folder=folder, perfil=perfil, executor=executor)
 
-def procesar_archivo(ruta, metodo=None, folder=None, perfil=None):
+def procesar_archivo(ruta, metodo=None, folder=None, perfil=None, executor=None):
     with cronometro_activo() as crono:
         with medir("lectura_audio"):
             audio, samplerate = sf.read(ruta)
@@ -101,7 +126,7 @@ def procesar_archivo(ruta, metodo=None, folder=None, perfil=None):
 
         if metodo is not None:
             print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
-            segmentos = vad(audio, samplerate, metodo=metodo)
+            segmentos = vad(audio, samplerate, metodo=metodo, executor=executor)
             segmentos = procesar_segmentos(segmentos, min_gap=0.3)
             with medir("audio_prueba"):
                 generar_audio_de_prueba(audio, samplerate, segmentos, folder)
@@ -165,11 +190,11 @@ def normalizar_volumen(audio, umbral_db=-20.0):
     return audio * factor_normalizacion
 
 @cronometrar(etiqueta="vad")
-def vad(audio, samplerate, metodo="energia"):
+def vad(audio, samplerate, metodo="energia", executor=None):
     if metodo == "energia":
         return vad_energia(audio, samplerate)
     elif metodo == "silero":
-        return vad_silero(audio, samplerate)
+        return vad_silero(audio, samplerate, executor=executor)
     elif metodo == "webrtc":
         return vad_webrtc(audio, samplerate)
     else:
