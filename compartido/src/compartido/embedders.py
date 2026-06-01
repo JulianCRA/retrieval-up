@@ -5,15 +5,13 @@ modulo centraliza:
   - metadatos por modelo (hf_id, ventana, dim, prefijos, etc.)
   - un `Sizer` que cuenta tokens REALES con el tokenizador del modelo
   - una factoria `cargar_sentence_transformer` para evaluar embeddings
-
-Los modelos se cachean en `descargas/modelos/embeddings/` (HF cache compartido).
 """
 from dataclasses import dataclass, field
 from typing import Optional
 
-from compartido.rutas import DESCARGAS_DIR
+from compartido.rutas import MODELOS_EMBEDDINGS_DIR
 
-MODELOS_DIR = DESCARGAS_DIR / "modelos" / "embeddings"
+MODELOS_DIR = MODELOS_EMBEDDINGS_DIR
 MODELOS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -38,7 +36,7 @@ EMBEDDERS: dict[str, EmbedderSpec] = {
 		id_corto="qwen3-0.6b",
 		hf_id="Qwen/Qwen3-Embedding-0.6B",
 		max_seq_len=32768,
-		chunk_default=256,
+		chunk_default=512,
 		dim=1024,
 		prefijo_query = (
 			"Instruct: Match the search query with relevant passages\n"
@@ -55,7 +53,7 @@ EMBEDDERS: dict[str, EmbedderSpec] = {
 		id_corto="bge-m3",
 		hf_id="BAAI/bge-m3",
 		max_seq_len=8192,
-		chunk_default=256,
+		chunk_default=512,
 		dim=1024,
 		notas=(
 			"Fuerte: calidad excelente multilingue (>100 idiomas, espanol incluido), "
@@ -102,7 +100,7 @@ EMBEDDERS: dict[str, EmbedderSpec] = {
 		id_corto="jina-v3",
 		hf_id="jinaai/jina-embeddings-v3",
 		max_seq_len=8192,
-		chunk_default=256,
+		chunk_default=512,
 		dim=1024,
 		tarea_passage="retrieval.passage",
 		tarea_query="retrieval.query",
@@ -195,6 +193,8 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	Import perezoso para que el solo conteo de tokens no requiera torch.
 	"""
 	import logging
+	import sys
+	import warnings
 	from sentence_transformers import SentenceTransformer
 
 	spec = get_spec(embedder_id)
@@ -202,8 +202,17 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	if spec.trust_remote_code:
 		kwargs["trust_remote_code"] = True
 
-	# Suprimir mensajes de advertencia ruidosos de las librerias subyacentes
-	# (p.ej. "flash_attn is not installed") durante la carga del modelo.
+	_PRINT_SUPPRESS = {"flash_attn is not installed"}
+
+	class _FilteredStream:
+		def __init__(self, stream):
+			self._stream = stream
+		def write(self, s):
+			if not any(p in s for p in _PRINT_SUPPRESS):
+				self._stream.write(s)
+		def flush(self):
+			self._stream.flush()
+
 	_loggers = [
 		logging.getLogger(name)
 		for name in ("transformers", "sentence_transformers", "torch")
@@ -211,8 +220,16 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	_prev_levels = [lg.level for lg in _loggers]
 	for lg in _loggers:
 		lg.setLevel(logging.ERROR)
-	try:
-		return SentenceTransformer(spec.hf_id, **kwargs)
-	finally:
-		for lg, lvl in zip(_loggers, _prev_levels):
-			lg.setLevel(lvl)
+
+	_prev_stdout, _prev_stderr = sys.stdout, sys.stderr
+	sys.stdout = _FilteredStream(sys.__stdout__)
+	sys.stderr = _FilteredStream(sys.__stderr__)
+	with warnings.catch_warnings():
+		warnings.filterwarnings("ignore", message=".*flash_attn.*")
+		try:
+			return SentenceTransformer(spec.hf_id, **kwargs)
+		finally:
+			sys.stdout = _prev_stdout
+			sys.stderr = _prev_stderr
+			for lg, lvl in zip(_loggers, _prev_levels):
+				lg.setLevel(lvl)

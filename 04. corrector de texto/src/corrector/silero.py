@@ -1,15 +1,15 @@
 import os
 
-from compartido.rutas import DESCARGAS_DIR
+from compartido.rutas import MODELOS_TORCH_HUB_DIR
 from compartido.utils import cronometrar
 
 
-CACHE_DIR = DESCARGAS_DIR / "modelos" / "torch_hub"
+CACHE_DIR = MODELOS_TORCH_HUB_DIR
 
 _APPLY_TE = None
 
 
-@cronometrar(etiqueta="Carga silero_te")
+@cronometrar(etiqueta="carga_modelo")
 def _hacer_carga_silero_te():
 	global _APPLY_TE
 	import torch
