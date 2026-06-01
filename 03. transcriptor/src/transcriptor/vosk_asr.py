@@ -68,6 +68,20 @@ def _obtener_modelo_es() -> Path:
     return ruta_modelo
 
 
+_VOSK_MODEL = None
+
+
+def _cargar_vosk():
+    global _VOSK_MODEL
+    if _VOSK_MODEL is not None:
+        return _VOSK_MODEL
+    with medir("carga_modelo"):
+        modelo_path = _obtener_modelo_es()
+        vosk.SetLogLevel(-1)
+        _VOSK_MODEL = vosk.Model(str(modelo_path))
+    return _VOSK_MODEL
+
+
 def _transcribir_segmento(modelo, audio_bytes, sample_rate, bytes_per_frame, inicio, fin):
     byte_start = int(inicio * sample_rate) * bytes_per_frame
     byte_end   = int(fin   * sample_rate) * bytes_per_frame
@@ -79,10 +93,7 @@ def _transcribir_segmento(modelo, audio_bytes, sample_rate, bytes_per_frame, ini
 
 @cronometrar(etiqueta="transcripcion")
 def transcribir_vosk(paths, perfil=None):
-    with medir("carga_modelo"):
-        modelo_path = _obtener_modelo_es()
-        vosk.SetLogLevel(-1)
-        modelo = vosk.Model(str(modelo_path))
+    modelo = _cargar_vosk()
 
     segmentos = cargar_archivo(paths["segmentos"])
     if segmentos is None:

@@ -58,25 +58,30 @@ def main():
 def procesar(hashes: list[str], modelo="vosk", forzar_cpu: bool = False):
     forzado = {"device": "cpu"} if forzar_cpu else None
     perfil = crear_perfil_hardware(forzado=forzado)
+    fallos: list[str] = []
     for hash in hashes:
-        procesar_hash(hash, modelo, perfil=perfil)
+        try:
+            procesar_hash(hash, modelo, perfil=perfil)
+        except Exception as e:
+            print(f"[ERROR] Hash '{hash}': {e}")
+            fallos.append(hash)
+    if fallos:
+        print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
+        sys.exit(1)
 
 def procesar_hash(hash, modelo="vosk", perfil=None):
     folder = DESCARGAS_DIR / hash
     info = ju.cargar_archivo(folder / "info.json")
     if info is None:
-        print(f"[ERROR] No se encontró información para el hash '{hash}'.")
-        sys.exit(1)
+        raise RuntimeError(f"No se encontró información para el hash '{hash}'.")
 
     audio_path = folder / info["procesamiento"]["archivo_procesado"]
     if not audio_path.exists():
-        print(f"[ERROR] No se encontró el archivo de audio '{audio_path}'.")
-        sys.exit(1)
+        raise RuntimeError(f"No se encontró el archivo de audio '{audio_path}'.")
 
     segmentos_path = folder / "segmentos.json"
     if not segmentos_path.exists():
-        print(f"[ERROR] No se encontró el archivo de segmentos '{segmentos_path}'.")
-        sys.exit(1)
+        raise RuntimeError(f"No se encontró el archivo de segmentos '{segmentos_path}'.")
 
     transcripciones_path = folder / "transcripciones.json"
 
@@ -102,8 +107,7 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
             from .cohere_asr import transcribir_cohere
             transcribir_cohere(paths, perfil=perfil)
         else:
-            print(f"[ERROR] Modelo '{modelo}' no soportado.")
-            sys.exit(1)
+            raise ValueError(f"Modelo '{modelo}' no soportado.")
 
         duracion = audio_path.stat().st_size / (16000 * 2)
         tiempos = crono.resumen()
