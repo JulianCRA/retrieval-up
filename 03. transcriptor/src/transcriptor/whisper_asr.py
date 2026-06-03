@@ -119,7 +119,15 @@ def cargar_modelo_whisper(model_size_or_path, params):
 		   params.get("cpu_threads", 1), params.get("num_workers", 1))
 	if key in _WHISPER_MODEL_CACHE:
 		return _WHISPER_MODEL_CACHE[key]
-	model = _hacer_carga_modelo_whisper(model_size_or_path, params)
+	try:
+		model = _hacer_carga_modelo_whisper(model_size_or_path, params)
+	except ValueError:
+		print(f"[ADVERTENCIA] {params['device'].upper()} no soporta {params['compute_type']}, reintentando en CPU con int8...")
+		params["device"] = "cpu"
+		params["compute_type"] = "int8"
+		params.pop("vram_gb", None)
+		model = _hacer_carga_modelo_whisper(model_size_or_path, params)
+		key = (model_size_or_path, "cpu", "int8", params.get("cpu_threads", 1), params.get("num_workers", 1))
 	_WHISPER_MODEL_CACHE[key] = model
 	return model
 

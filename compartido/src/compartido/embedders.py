@@ -228,6 +228,12 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 		warnings.filterwarnings("ignore", message=".*flash_attn.*")
 		try:
 			return SentenceTransformer(spec.hf_id, **kwargs)
+		except RuntimeError:
+			if kwargs.get("device") != "cpu":
+				sys.__stdout__.write(f"[ADVERTENCIA] No se pudo cargar en '{kwargs['device']}', reintentando en CPU...\n")
+				kwargs["device"] = "cpu"
+				return SentenceTransformer(spec.hf_id, **kwargs)
+			raise
 		finally:
 			sys.stdout = _prev_stdout
 			sys.stderr = _prev_stderr
