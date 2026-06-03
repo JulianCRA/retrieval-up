@@ -66,6 +66,7 @@ def guardar_resultado_db(args, filas, tiempos, inicio: datetime, fin: datetime) 
 		"fin":           fin.isoformat(timespec="seconds"),
 		"query":         args.query,
 		"query_vector":  None,
+		"query_bm25":    None,
 		"embedder":      args.embedder,
 		"modo":          args.modo,
 		"top_k":         args.top_k,

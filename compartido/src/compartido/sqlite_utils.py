@@ -8,6 +8,7 @@ busquedas
     inicio        TEXT   – hora de inicio (ISO-8601)
     fin           TEXT   – hora de fin   (ISO-8601)
     query         TEXT   – texto de la consulta
+    query_bm25    TEXT   – tokens BM25 de la query (se rellena en un paso posterior)
     query_vector  BLOB   – embedding de la query (se rellena en un paso posterior)
     embedder      TEXT   – id del modelo de embeddings usado para indexar
     modo          TEXT   – rrf / wrrf / denso / bm25
@@ -55,6 +56,7 @@ def crear_tablas(conn: sqlite3.Connection) -> None:
             inicio         TEXT    NOT NULL,
             fin            TEXT    NOT NULL,
             query          TEXT    NOT NULL,
+            query_bm25     TEXT,
             query_vector   BLOB,
             embedder       TEXT    NOT NULL,
             modo           TEXT    NOT NULL,
@@ -86,10 +88,10 @@ def insertar_busqueda(conn: sqlite3.Connection, datos: dict) -> int:
     cur = conn.execute(
         """
         INSERT INTO busquedas
-            (timestamp, inicio, fin, query, query_vector,
+            (timestamp, inicio, fin, query, query_bm25, query_vector,
              embedder, modo, top_k, reranker, peso_semantica, tiempos)
         VALUES
-            (:timestamp, :inicio, :fin, :query, :query_vector,
+            (:timestamp, :inicio, :fin, :query, :query_bm25, :query_vector,
              :embedder, :modo, :top_k, :reranker, :peso_semantica, :tiempos)
         """,
         {
@@ -97,6 +99,7 @@ def insertar_busqueda(conn: sqlite3.Connection, datos: dict) -> int:
             "inicio":        datos["inicio"],
             "fin":           datos["fin"],
             "query":         datos["query"],
+            "query_bm25":    datos.get("query_bm25"),
             "query_vector":  datos.get("query_vector"),
             "embedder":      datos["embedder"],
             "modo":          datos["modo"],
