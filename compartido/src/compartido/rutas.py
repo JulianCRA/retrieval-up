@@ -17,5 +17,6 @@ MODELOS_PUNCTUATE_ALL_DIR = MODELOS_DIR / "punctuate-all"
 MODELOS_COHERE_DIR = MODELOS_DIR / "cohere"
 
 RESULTADOS_DIR = RAIZ / "resultados"
+RESULTADOS_DB = RESULTADOS_DIR / "resultados.db"
 
 ARCHIVO_REGISTRO = DESCARGAS_DIR / "registros.json"
