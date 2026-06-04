@@ -1,8 +1,8 @@
 import json
 from datetime import datetime
 
-from compartido.rutas import RESULTADOS_DB, RESULTADOS_DIR
-from compartido.sqlite_utils import conectar, guardar_busqueda_completa
+from compartido.rutas import RESULTADOS_DIR
+from compartido.sqlite_utils import guardar_busqueda_completa
 
 _EXCLUIR = {"vector", "texto_bm25"}
 
@@ -76,9 +76,7 @@ def guardar_resultado_db(args, filas, tiempos, inicio: datetime, fin: datetime) 
 	}
 
 	try:
-		conn = conectar(RESULTADOS_DB)
-		busqueda_id = guardar_busqueda_completa(conn, datos, resultados_limpios)
-		conn.close()
+		busqueda_id = guardar_busqueda_completa(datos, resultados_limpios)
 		print(f"[OK] Resultado guardado en base de datos (id={busqueda_id}).")
 		return busqueda_id
 	except Exception as e:

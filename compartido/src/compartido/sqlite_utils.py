@@ -18,102 +18,113 @@ busquedas
     tiempos       TEXT   – JSON con desglose de tiempos
 
 resultados
-    id            INTEGER PK AUTOINCREMENT
-    busqueda_id   INTEGER FK → busquedas.id
-    rank          INTEGER
-    video_id      TEXT
-    titulo        TEXT
-    chunk_idx     INTEGER
-    score         REAL
-    score_rerank  REAL
-    texto         TEXT
-    scores_origen TEXT   – JSON {"denso": float, "bm25": float}
-    ranks_origen  TEXT   – JSON {"denso": int,   "bm25": int}
+    id           INTEGER PK AUTOINCREMENT
+    busqueda_id  INTEGER FK → busquedas.id
+    rank         INTEGER
+    video_id     TEXT
+    titulo       TEXT
+    chunk_idx    INTEGER
+    score        REAL
+    score_rerank REAL
+    texto        TEXT
+    score_denso  REAL   – score coseno original (NULL si modo bm25)
+    score_bm25   REAL   – score BM25 original   (NULL si modo denso)
+    rank_denso   INTEGER
+    rank_bm25    INTEGER
 """
 
 import json
 import sqlite3
-from pathlib import Path
+
+from compartido.rutas import RESULTADOS_DB
 
 
-def conectar(ruta: Path) -> sqlite3.Connection:
-    """Abre (o crea) la base de datos en *ruta* y devuelve la conexión."""
-    ruta = Path(ruta)
-    ruta.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(ruta)
+def _conectar() -> sqlite3.Connection:
+    RESULTADOS_DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(RESULTADOS_DB)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
-def crear_tablas(conn: sqlite3.Connection) -> None:
+def crear_tablas() -> None:
     """Crea las tablas si no existen."""
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS busquedas (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp      TEXT    NOT NULL,
-            inicio         TEXT    NOT NULL,
-            fin            TEXT    NOT NULL,
-            query          TEXT    NOT NULL,
-            query_bm25     TEXT,
-            query_vector   BLOB,
-            embedder       TEXT    NOT NULL,
-            modo           TEXT    NOT NULL,
-            top_k          INTEGER NOT NULL,
-            reranker       TEXT,
-            peso_semantica REAL,
-            tiempos        TEXT
-        );
+    conn = _conectar()
+    try:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS busquedas (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp      TEXT    NOT NULL,
+                inicio         TEXT    NOT NULL,
+                fin            TEXT    NOT NULL,
+                query          TEXT    NOT NULL,
+                query_bm25     TEXT,
+                query_vector   BLOB,
+                embedder       TEXT    NOT NULL,
+                modo           TEXT    NOT NULL,
+                top_k          INTEGER NOT NULL,
+                reranker       TEXT,
+                peso_semantica REAL,
+                tiempos        TEXT
+            );
 
-        CREATE TABLE IF NOT EXISTS resultados (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            busqueda_id   INTEGER NOT NULL REFERENCES busquedas(id) ON DELETE CASCADE,
-            rank          INTEGER NOT NULL,
-            video_id      TEXT,
-            titulo        TEXT,
-            chunk_idx     INTEGER,
-            score         REAL,
-            score_rerank  REAL,
-            texto         TEXT,
-            scores_origen TEXT,
-            ranks_origen  TEXT
-        );
-    """)
-    conn.commit()
+            CREATE TABLE IF NOT EXISTS resultados (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                busqueda_id  INTEGER NOT NULL REFERENCES busquedas(id) ON DELETE CASCADE,
+                rank         INTEGER NOT NULL,
+                video_id     TEXT,
+                titulo       TEXT,
+                chunk_idx    INTEGER,
+                score        REAL,
+                score_rerank REAL,
+                texto        TEXT,
+                score_denso  REAL,
+                score_bm25   REAL,
+                rank_denso   INTEGER,
+                rank_bm25    INTEGER
+            );
+        """)
+        conn.commit()
+    finally:
+        conn.close()
 
 
-def insertar_busqueda(conn: sqlite3.Connection, datos: dict) -> int:
+def insertar_busqueda(datos: dict) -> int:
     """Inserta una fila en *busquedas* y devuelve el id generado."""
-    cur = conn.execute(
-        """
-        INSERT INTO busquedas
-            (timestamp, inicio, fin, query, query_bm25, query_vector,
-             embedder, modo, top_k, reranker, peso_semantica, tiempos)
-        VALUES
-            (:timestamp, :inicio, :fin, :query, :query_bm25, :query_vector,
-             :embedder, :modo, :top_k, :reranker, :peso_semantica, :tiempos)
-        """,
-        {
-            "timestamp":     datos["timestamp"],
-            "inicio":        datos["inicio"],
-            "fin":           datos["fin"],
-            "query":         datos["query"],
-            "query_bm25":    datos.get("query_bm25"),
-            "query_vector":  datos.get("query_vector"),
-            "embedder":      datos["embedder"],
-            "modo":          datos["modo"],
-            "top_k":         datos["top_k"],
-            "reranker":      datos.get("reranker"),
-            "peso_semantica": datos.get("peso_semantica"),
-            "tiempos":       json.dumps(datos.get("tiempos") or {}, ensure_ascii=False),
-        },
-    )
-    conn.commit()
-    return cur.lastrowid
+    conn = _conectar()
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO busquedas
+                (timestamp, inicio, fin, query, query_bm25, query_vector,
+                 embedder, modo, top_k, reranker, peso_semantica, tiempos)
+            VALUES
+                (:timestamp, :inicio, :fin, :query, :query_bm25, :query_vector,
+                 :embedder, :modo, :top_k, :reranker, :peso_semantica, :tiempos)
+            """,
+            {
+                "timestamp":      datos["timestamp"],
+                "inicio":         datos["inicio"],
+                "fin":            datos["fin"],
+                "query":          datos["query"],
+                "query_bm25":     datos.get("query_bm25"),
+                "query_vector":   datos.get("query_vector"),
+                "embedder":       datos["embedder"],
+                "modo":           datos["modo"],
+                "top_k":          datos["top_k"],
+                "reranker":       datos.get("reranker"),
+                "peso_semantica": datos.get("peso_semantica"),
+                "tiempos":        json.dumps(datos.get("tiempos") or {}, ensure_ascii=False),
+            },
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
 
 
-def insertar_resultados(conn: sqlite3.Connection, busqueda_id: int, filas: list[dict]) -> None:
+def insertar_resultados(busqueda_id: int, filas: list[dict]) -> None:
     """Inserta las filas de resultados asociadas a una búsqueda."""
     rows = [
         (
@@ -125,73 +136,77 @@ def insertar_resultados(conn: sqlite3.Connection, busqueda_id: int, filas: list[
             fila.get("score"),
             fila.get("score_rerank"),
             fila.get("texto", ""),
-            json.dumps(fila.get("scores_origen") or {}, ensure_ascii=False),
-            json.dumps(fila.get("ranks_origen") or {}, ensure_ascii=False),
+            (fila.get("scores_origen") or {}).get("denso"),
+            (fila.get("scores_origen") or {}).get("bm25"),
+            (fila.get("ranks_origen") or {}).get("denso"),
+            (fila.get("ranks_origen") or {}).get("bm25"),
         )
         for fila in filas
     ]
-    conn.executemany(
-        """
-        INSERT INTO resultados
-            (busqueda_id, rank, video_id, titulo, chunk_idx,
-             score, score_rerank, texto, scores_origen, ranks_origen)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        rows,
-    )
-    conn.commit()
-
-
-def guardar_busqueda_completa(
-    conn: sqlite3.Connection,
-    datos: dict,
-    filas: list[dict],
-) -> int:
-    """Crea las tablas (si hacen falta), inserta la búsqueda y sus resultados.
-
-    Devuelve el id de la fila en *busquedas*.
-    """
-    crear_tablas(conn)
-    busqueda_id = insertar_busqueda(conn, datos)
-    if filas:
-        insertar_resultados(conn, busqueda_id, filas)
-    return busqueda_id
-
-
-def actualizar_query_vector(conn: sqlite3.Connection, busqueda_id: int, vector: bytes) -> None:
-    """Rellena el campo *query_vector* de una búsqueda existente."""
-    conn.execute(
-        "UPDATE busquedas SET query_vector = ? WHERE id = ?",
-        (vector, busqueda_id),
-    )
-    conn.commit()
-
-
-def reset_database(ruta: Path, remove_file: bool = False) -> None:
-    """Resetea la base de datos indicada por *ruta*.
-
-    Si *remove_file* es True, el archivo de la base de datos se elimina.
-    En caso contrario, se intentan eliminar las tablas `resultados` y
-    `busquedas` dejando el archivo intacto.
-    """
-    ruta = Path(ruta)
-    if remove_file:
-        try:
-            if ruta.exists():
-                ruta.unlink()
-                return
-        except Exception as e:
-            raise RuntimeError(f"No se pudo eliminar el archivo de la DB: {e}")
-
-    # Si no eliminamos el archivo, abrimos la conexión y borramos las tablas.
-    conn = conectar(ruta)
+    conn = _conectar()
     try:
-        conn.executescript(
+        conn.executemany(
             """
-            DROP TABLE IF EXISTS resultados;
-            DROP TABLE IF EXISTS busquedas;
-            """
+            INSERT INTO resultados
+                (busqueda_id, rank, video_id, titulo, chunk_idx,
+                 score, score_rerank, texto,
+                 score_denso, score_bm25, rank_denso, rank_bm25)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
         )
         conn.commit()
     finally:
         conn.close()
+
+
+def guardar_busqueda_completa(datos: dict, filas: list[dict]) -> int:
+    """Crea las tablas (si hacen falta), inserta la búsqueda y sus resultados.
+
+    Devuelve el id de la fila en *busquedas*.
+    """
+    crear_tablas()
+    busqueda_id = insertar_busqueda(datos)
+    if filas:
+        insertar_resultados(busqueda_id, filas)
+    return busqueda_id
+
+
+def actualizar_query_vector(busqueda_id: int, vector: bytes) -> None:
+    """Rellena el campo *query_vector* de una búsqueda existente."""
+    conn = _conectar()
+    try:
+        conn.execute(
+            "UPDATE busquedas SET query_vector = ? WHERE id = ?",
+            (vector, busqueda_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def actualizar_query_bm25(busqueda_id: int, tokens: str) -> None:
+    """Rellena el campo *query_bm25* de una búsqueda existente."""
+    conn = _conectar()
+    try:
+        conn.execute(
+            "UPDATE busquedas SET query_bm25 = ? WHERE id = ?",
+            (tokens, busqueda_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def reset_database() -> None:
+    """Elimina y recrea las tablas, dejando la DB vacía."""
+    conn = _conectar()
+    try:
+        conn.executescript("""
+            DROP TABLE IF EXISTS resultados;
+            DROP TABLE IF EXISTS busquedas;
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+    crear_tablas()
