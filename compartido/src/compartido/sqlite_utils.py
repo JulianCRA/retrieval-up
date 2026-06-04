@@ -165,3 +165,33 @@ def actualizar_query_vector(conn: sqlite3.Connection, busqueda_id: int, vector: 
         (vector, busqueda_id),
     )
     conn.commit()
+
+
+def reset_database(ruta: Path, remove_file: bool = False) -> None:
+    """Resetea la base de datos indicada por *ruta*.
+
+    Si *remove_file* es True, el archivo de la base de datos se elimina.
+    En caso contrario, se intentan eliminar las tablas `resultados` y
+    `busquedas` dejando el archivo intacto.
+    """
+    ruta = Path(ruta)
+    if remove_file:
+        try:
+            if ruta.exists():
+                ruta.unlink()
+                return
+        except Exception as e:
+            raise RuntimeError(f"No se pudo eliminar el archivo de la DB: {e}")
+
+    # Si no eliminamos el archivo, abrimos la conexión y borramos las tablas.
+    conn = conectar(ruta)
+    try:
+        conn.executescript(
+            """
+            DROP TABLE IF EXISTS resultados;
+            DROP TABLE IF EXISTS busquedas;
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
