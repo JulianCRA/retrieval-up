@@ -9,8 +9,8 @@ description = "Fragmenta el texto corregido en chunks para su vectorizacion."
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "compartido",
-    "sentence-transformers>=3.0,<4.0",
-    "transformers>=4.40,<5.0",
+    "sentence-transformers>=4.0,<6.0",
+    "transformers>=5.0,<6.0",
     "numpy>=1.24",
     "einops>=0.7",
 ]

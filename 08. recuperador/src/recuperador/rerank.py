@@ -6,6 +6,8 @@ RERANKERS = {
     "jina": "jinaai/jina-reranker-v2-base-multilingual",
 }
 
+_TRUST_REMOTE_CODE = {"jina"}
+
 _modelo_cache: dict = {}
 
 
@@ -17,7 +19,8 @@ def _cargar_modelo(reranker_id: str, device: str = "cpu"):
     if cache_key not in _modelo_cache:
         model_name = RERANKERS[reranker_id]
         print(f"[reranker] Cargando '{model_name}' en {device}...")
-        _modelo_cache[cache_key] = CrossEncoder(model_name, device=device)
+        trust = reranker_id in _TRUST_REMOTE_CODE
+        _modelo_cache[cache_key] = CrossEncoder(model_name, device=device, trust_remote_code=trust)
     return _modelo_cache[cache_key]
 
 
