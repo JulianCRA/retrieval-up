@@ -1,12 +1,13 @@
 import argparse
+from datetime import datetime
 
 from compartido.embedders import listar_ids
-from compartido.rutas import DESCARGAS_DIR
+from compartido.utils import crear_perfil_hardware, cronometro_activo
 
 from recuperador.busqueda import buscar
 from recuperador.fusionado import rrf, wrrf
-
-RESULTADOS_DIR = DESCARGAS_DIR / "resultados"
+from recuperador.rerank import RERANKERS, rerank
+from recuperador.resultados import guardar_resultado_json, guardar_resultado_db, imprimir_resultados
 
 MODOS = ["rrf", "wrrf", "denso", "bm25"]
 
@@ -49,6 +50,18 @@ def main():
 		choices=["lance", "qdrant", "milvus"],
 		help="Backend de busqueda (default: lance).",
 	)
+	parser.add_argument(
+		"--reranker",
+		default=None,
+		choices=list(RERANKERS),
+		help=f"Reranker a aplicar tras la recuperacion: {', '.join(RERANKERS)}. Default: ninguno.",
+	)
+	parser.add_argument(
+		"--forzar-cpu",
+		action="store_true",
+		dest="forzar_cpu",
+		help="Forzar uso de CPU aunque haya GPU disponible (afecta al encoder de la query y al reranker).",
+	)
 
 	args = parser.parse_args()
 
@@ -56,60 +69,33 @@ def main():
 		print(f"Backend '{args.backend}' no soportado en esta version. haciendo fallback a 'lance'.")
 		args.backend = "lance"
 
-	
-	semantica, sintactica = buscar(args.embedder, args.query, args.modo, args.top_k)
+	forzado = {"device": "cpu"} if args.forzar_cpu else None
+	device = crear_perfil_hardware(forzado=forzado)["device"]
 
-	if args.modo in ("rrf", "hibrido"):
-		filas = rrf(semantica, sintactica, args.top_k)
-	elif args.modo == "wrrf":
-		filas = wrrf(semantica, sintactica, args.top_k, peso_semantica=args.peso_semantica)
-	elif args.modo == "bm25":
-		filas = sintactica
-	else:
-		filas = semantica
+	inicio = datetime.now()
+	with cronometro_activo() as crono:
+		semantica, sintactica = buscar(args.embedder, args.query, args.modo, args.top_k, device=device)
 
-	imprimir_resultados(args.query, args.modo, filas)
-
-	
-
-def imprimir_resultados(query, modo, filas):
-	print(f"\nResultados para la consulta: '{query}' (modo: {modo}):")
-	if not filas:
-		print("Sin resultados.")
-		return
-
-	for i, fila in enumerate(filas, start=1):
-		titulo = fila.get("titulo") or fila.get("fuente") or "(sin titulo)"
-		chunk_idx = fila.get("chunk_idx")
-		chunk_txt = f" [chunk {chunk_idx}]" if chunk_idx is not None else ""
-		score = fila.get("score")
-
-		if modo in ("rrf", "wrrf"):
-			score_txt = f"RRF: {score:.6f}" if isinstance(score, (float, int)) else "RRF: n/a"
-			scores_origen = fila.get("scores_origen", {})
-			ranks_origen = fila.get("ranks_origen", {})
-			score_denso = scores_origen.get("denso")
-			score_bm25 = scores_origen.get("bm25")
-			rank_denso = ranks_origen.get("denso")
-			rank_bm25 = ranks_origen.get("bm25")
-			origen_denso = f"coseno={score_denso:.4f} (rank {rank_denso})" if score_denso is not None else "ausente"
-			origen_bm25 = f"bm25={score_bm25:.4f} (rank {rank_bm25})" if score_bm25 is not None else "ausente"
-			detalle = f"   denso: {origen_denso} | sintactica: {origen_bm25}"
-		elif modo == "bm25":
-			score_txt = f"BM25: {score:.4f}" if isinstance(score, (float, int)) else "BM25: n/a"
-			detalle = None
+		if args.modo in ("rrf", "hibrido"):
+			filas = rrf(semantica, sintactica)
+		elif args.modo == "wrrf":
+			filas = wrrf(semantica, sintactica, peso_semantica=args.peso_semantica)
+		elif args.modo == "bm25":
+			filas = sintactica
 		else:
-			score_txt = f"Coseno: {score:.4f}" if isinstance(score, (float, int)) else "Coseno: n/a"
-			detalle = None
+			filas = semantica
 
-		texto = fila.get("texto", "")
-		preview = texto[:500] + ("..." if len(texto) > 500 else "")
-		print(f"{i}. {titulo}{chunk_txt} — {score_txt}")
-		if detalle:
-			print(detalle)
-		print(f"   {preview}\n")
+		if args.reranker:
+			filas = rerank(args.query, filas, args.reranker, device=device)
 
-	
+		filas = filas[:args.top_k]
+		tiempos = crono.resumen()
+
+	fin = datetime.now()
+	imprimir_resultados(args.query, args.modo, filas, reranker=args.reranker, inicio=inicio, fin=fin)
+	guardar_resultado_json(args, filas, tiempos, inicio=inicio, fin=fin)
+	guardar_resultado_db(args, filas, tiempos, inicio=inicio, fin=fin)
+
 
 if __name__ == "__main__":
 	main()

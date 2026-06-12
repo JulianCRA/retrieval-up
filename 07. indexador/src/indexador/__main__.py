@@ -5,18 +5,13 @@ import sys
 import numpy as np
 
 from compartido import json_utils as ju
-from compartido.rutas import DESCARGAS_DIR
+from compartido.rutas import DESCARGAS_DIR, INDICE_DIR
 from compartido.embedders import listar_ids
-from compartido.utils import cronometrar
+from compartido.utils import cronometrar, cronometro_activo, medir
 
 import importlib
 
 from compartido.bm25 import tokenizar, tokens_a_texto
-
-
-# Directorio por defecto del indice (default de --db para el backend lance).
-INDICE_DIR = DESCARGAS_DIR / "indice"
-
 
 def _parse_tag(valor: str) -> tuple[str, str]:
 	"""Parsea 'CLAVE=VALOR' y aborta si el formato es incorrecto."""
@@ -146,12 +141,12 @@ def procesar(
 		reclear = False
 
 
-@cronometrar(etiqueta="Tokenizacion BM25")
+@cronometrar(etiqueta="tokenizacion_bm25")
 def _tokenizar_fragmentos(fragmentos: list[dict]) -> list[list[str]]:
 	return [tokenizar(f["texto"]) for f in fragmentos]
 
 
-@cronometrar(etiqueta="Tokenizacion BM25 segmentos")
+@cronometrar(etiqueta="tokenizacion_bm25_segmentos")
 def _tokenizar_segmentos(fragmentos: list[dict]) -> list[list[list[str]]]:
 	return [
 		[tokenizar(s.get("texto", "")) for s in (frag.get("segmentos") or [])]
@@ -174,103 +169,110 @@ def _procesar_hash(
 	vectores_npz_path = folder / "vectores.npz"
 	info_path = folder / "info.json"
 
-	data = ju.cargar_archivo(fragmentos_path)
-	if not data:
-		print(f"[ERROR] No se pudo cargar '{fragmentos_path}'.")
-		sys.exit(1)
+	with cronometro_activo() as crono:
+		with medir("lectura_fragmentos"):
+			data = ju.cargar_archivo(fragmentos_path)
+		if not data:
+			print(f"[ERROR] No se pudo cargar '{fragmentos_path}'.")
+			sys.exit(1)
 
-	fragmentos = data.get("fragmentos")
-	if not fragmentos:
-		print(f"[ERROR] No hay fragmentos en '{fragmentos_path}'.")
-		sys.exit(1)
+		fragmentos = data.get("fragmentos")
+		if not fragmentos:
+			print(f"[ERROR] No hay fragmentos en '{fragmentos_path}'.")
+			sys.exit(1)
 
-	print(f"[OK] Fragmentos cargados: {len(fragmentos)} (hash={hash_id})")
+		print(f"[OK] Fragmentos cargados: {len(fragmentos)} (hash={hash_id})")
 
-	# --- Info de la fuente ---
-	info = ju.cargar_archivo(info_path) or {}
-	descarga = info.get("descarga") or {}
-	titulo = info.get("title") or ""
-	uri = descarga.get("uri") or ""
-	fuente = descarga.get("fuente") or ""
+		# --- Info de la fuente ---
+		info = ju.cargar_archivo(info_path) or {}
+		descarga = info.get("descarga") or {}
+		titulo = info.get("title") or ""
+		uri = descarga.get("uri") or ""
+		fuente = descarga.get("fuente") or ""
 
-	# --- Vectores ---
-	meta_vec = ju.cargar_archivo(vectores_meta_path)
-	if not meta_vec:
-		print(f"[ERROR] No se pudo cargar '{vectores_meta_path}'.")
-		sys.exit(1)
+		# --- Vectores ---
+		meta_vec = ju.cargar_archivo(vectores_meta_path)
+		if not meta_vec:
+			print(f"[ERROR] No se pudo cargar '{vectores_meta_path}'.")
+			sys.exit(1)
 
-	embedder_id = embedder or meta_vec.get("embedder")
-	if not embedder_id:
-		print(f"[ERROR] No se pudo determinar el embedder para '{hash_id}'.")
-		sys.exit(1)
-	if embedder and meta_vec.get("embedder") and embedder != meta_vec["embedder"]:
-		print(
-			f"[ERROR] El embedder solicitado '{embedder}' no coincide con "
-			f"el de vectores.json ('{meta_vec['embedder']}') para hash={hash_id}."
-		)
-		sys.exit(1)
+		embedder_id = embedder or meta_vec.get("embedder")
+		if not embedder_id:
+			print(f"[ERROR] No se pudo determinar el embedder para '{hash_id}'.")
+			sys.exit(1)
+		if embedder and meta_vec.get("embedder") and embedder != meta_vec["embedder"]:
+			print(
+				f"[ERROR] El embedder solicitado '{embedder}' no coincide con "
+				f"el de vectores.json ('{meta_vec['embedder']}') para hash={hash_id}."
+			)
+			sys.exit(1)
 
-	dim = int(meta_vec.get("dim") or 0)
-	if dim <= 0:
-		print(f"[ERROR] 'dim' invalido en '{vectores_meta_path}'.")
-		sys.exit(1)
+		dim = int(meta_vec.get("dim") or 0)
+		if dim <= 0:
+			print(f"[ERROR] 'dim' invalido en '{vectores_meta_path}'.")
+			sys.exit(1)
 
-	# --- Deduplicacion ---
-	nombre_tabla = tabla or embedder_id
-	if not reclear and backend_mod.hash_indexado(db, nombre_tabla, hash_id):
-		print(f"[SKIP] hash={hash_id} ya indexado en tabla '{nombre_tabla}'. Usar --recrear para reindexar.")
-		return
+		# --- Deduplicacion ---
+		nombre_tabla = tabla or embedder_id
+		with medir("dedup_check"):
+			ya_indexado = (not reclear) and backend_mod.hash_indexado(db, nombre_tabla, hash_id)
+		if ya_indexado:
+			print(f"[SKIP] hash={hash_id} ya indexado en tabla '{nombre_tabla}'. Usar --recrear para reindexar.")
+			return
 
-	try:
-		npz = np.load(vectores_npz_path)
-	except FileNotFoundError:
-		print(f"[ERROR] No se encontro '{vectores_npz_path}'.")
-		sys.exit(1)
-	embeddings = npz["embeddings"]
-	if embeddings.shape != (len(fragmentos), dim):
-		print(
-			f"[ERROR] Shape de embeddings {embeddings.shape} no coincide con "
-			f"(num_fragmentos={len(fragmentos)}, dim={dim})."
-		)
-		sys.exit(1)
-	embeddings = embeddings.astype(np.float32, copy=False)
+		try:
+			with medir("carga_npz"):
+				npz = np.load(vectores_npz_path)
+		except FileNotFoundError:
+			print(f"[ERROR] No se encontro '{vectores_npz_path}'.")
+			sys.exit(1)
+		embeddings = npz["embeddings"]
+		if embeddings.shape != (len(fragmentos), dim):
+			print(
+				f"[ERROR] Shape de embeddings {embeddings.shape} no coincide con "
+				f"(num_fragmentos={len(fragmentos)}, dim={dim})."
+			)
+			sys.exit(1)
+		embeddings = embeddings.astype(np.float32, copy=False)
 
-	# --- BM25: tokenizar ---
-	tokens_por_fragmento = _tokenizar_fragmentos(fragmentos)
+		# --- BM25: tokenizar ---
+		tokens_por_fragmento = _tokenizar_fragmentos(fragmentos)
 
-	# --- LanceDB: construir filas y escribir ---
-	# nombre_tabla ya definido arriba
-	tags_json = json.dumps(tags, ensure_ascii=False)
-	tokens_por_segmento = _tokenizar_segmentos(fragmentos)
+		# --- LanceDB: construir filas y escribir ---
+		tags_json = json.dumps(tags, ensure_ascii=False)
+		tokens_por_segmento = _tokenizar_segmentos(fragmentos)
 
-	filas = []
-	for i, frag in enumerate(fragmentos):
-		segmentos = [
-			{
-				"inicio": float(s.get("inicio", 0.0)),
-				"fin": float(s.get("fin", 0.0)),
-				"texto": s.get("texto", ""),
-				"texto_bm25": tokens_a_texto(tokens_por_segmento[i][j]),
-			}
-			for j, s in enumerate(frag.get("segmentos") or [])
-		]
-		filas.append({
-			"id": f"{hash_id}:{i}",
-			"hash": hash_id,
-			"chunk_idx": i,
-			"texto": frag.get("texto", ""),
-			"texto_bm25": tokens_a_texto(tokens_por_fragmento[i]),
-			"inicio": float(frag.get("inicio", 0.0)),
-			"fin": float(frag.get("fin", 0.0)),
-			"segmentos": segmentos,
-			"titulo": titulo,
-			"uri": uri,
-			"fuente": fuente,
-			"tags": tags_json,
-			"vector": embeddings[i].tolist(),
-		})
+		filas = []
+		for i, frag in enumerate(fragmentos):
+			segmentos = [
+				{
+					"inicio": float(s.get("inicio", 0.0)),
+					"fin": float(s.get("fin", 0.0)),
+					"texto": s.get("texto", ""),
+					"texto_bm25": tokens_a_texto(tokens_por_segmento[i][j]),
+				}
+				for j, s in enumerate(frag.get("segmentos") or [])
+			]
+			filas.append({
+				"id": f"{hash_id}:{i}",
+				"hash": hash_id,
+				"chunk_idx": i,
+				"texto": frag.get("texto", ""),
+				"texto_bm25": tokens_a_texto(tokens_por_fragmento[i]),
+				"inicio": float(frag.get("inicio", 0.0)),
+				"fin": float(frag.get("fin", 0.0)),
+				"segmentos": segmentos,
+				"titulo": titulo,
+				"uri": uri,
+				"fuente": fuente,
+				"tags": tags_json,
+				"vector": embeddings[i].tolist(),
+			})
 
-	backend_mod.escribir_tabla(db, nombre_tabla, filas, dim=dim, reclear=reclear)
+		with medir("escritura_db"):
+			backend_mod.escribir_tabla(db, nombre_tabla, filas, dim=dim, reclear=reclear)
+
+	print(f"[TIEMPOS] hash={hash_id}: {crono.resumen()}")
 
 
 if __name__ == "__main__":

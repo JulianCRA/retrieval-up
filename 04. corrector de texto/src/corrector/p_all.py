@@ -1,9 +1,9 @@
-from compartido.rutas import DESCARGAS_DIR
+from compartido.rutas import MODELOS_PUNCTUATE_ALL_DIR
 from compartido.utils import cronometrar
 
 
 MODEL_ID = "kredor/punctuate-all"
-CACHE_DIR = DESCARGAS_DIR / "modelos" / "kredor"
+CACHE_DIR = MODELOS_PUNCTUATE_ALL_DIR
 SPACY_MODEL_ID = "es_core_news_lg"
 _CHUNK_WORDS = 180  # stay safely under the 512-token limit
 
@@ -15,14 +15,16 @@ _SPACY_NLP = None
 
 # ── punctuation ───────────────────────────────────────────────────────────────
 
-@cronometrar(etiqueta="Carga punctuate-all")
-def _hacer_carga_modelo():
+@cronometrar(etiqueta="carga_modelo")
+def _hacer_carga_modelo(device=None):
 	global _TOKENIZER, _MODEL, _DEVICE
 	import torch
 	from transformers import AutoTokenizer, AutoModelForTokenClassification
 
-	_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-	# _DEVICE = torch.device("cpu")
+	if device is None:
+		_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+	else:
+		_DEVICE = torch.device(device)
 	print(f"[INFO] Cargando '{MODEL_ID}' en {_DEVICE}...")
 	CACHE_DIR.mkdir(parents=True, exist_ok=True)
 	cache = str(CACHE_DIR)
@@ -33,11 +35,11 @@ def _hacer_carga_modelo():
 	_MODEL.eval()
 
 
-def _cargar():
+def _cargar(device=None):
 	if _MODEL is not None:
 		return _TOKENIZER, _MODEL
 
-	_hacer_carga_modelo()
+	_hacer_carga_modelo(device=device)
 	return _TOKENIZER, _MODEL
 
 
@@ -71,8 +73,8 @@ def _predecir_etiquetas_batch(tokenizer, model, chunks: list) -> list:
 	return salida
 
 
-def _puntuar(texto: str) -> str:
-	tokenizer, model = _cargar()
+def _puntuar(texto: str, device=None) -> str:
+	tokenizer, model = _cargar(device=device)
 	palabras = texto.split()
 	if not palabras:
 		return texto
@@ -91,7 +93,7 @@ def _puntuar(texto: str) -> str:
 
 # ── capitalization ────────────────────────────────────────────────────────────
 
-@cronometrar(etiqueta="Carga spacy")
+@cronometrar(etiqueta="carga_spacy")
 def _hacer_carga_spacy():
 	global _SPACY_NLP
 	import spacy
@@ -122,5 +124,5 @@ def _capitalizar(texto: str) -> str:
 
 # ── public entry point ────────────────────────────────────────────────────────
 
-def corregir_p_all(texto: str) -> str:
-	return _capitalizar(_puntuar(texto))
+def corregir_p_all(texto: str, device=None) -> str:
+	return _capitalizar(_puntuar(texto, device=device))

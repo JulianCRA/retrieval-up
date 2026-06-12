@@ -2,13 +2,13 @@ import lancedb
 
 from compartido.embedders import cargar_sentence_transformer, get_spec
 from compartido.bm25 import tokenizar, tokens_a_texto
+from compartido.utils import cronometrar, medir
 
-from compartido.rutas import DESCARGAS_DIR
-
-INDICE_DIR = DESCARGAS_DIR / "indice"
+from compartido.rutas import INDICE_DIR
 
 FACTOR_OVERSAMPLING = 4
 	
+@cronometrar(etiqueta="apertura_tabla")
 def abrir_tabla(nombre):
 	db = lancedb.connect(INDICE_DIR)
 	tablas = list(db.list_tables().tables)
@@ -27,29 +27,33 @@ def abrir_tabla(nombre):
 	
 	return tabla
 
-def vectorizar_query(query, embedder_id):
-	modelo = cargar_sentence_transformer(embedder_id)
+def vectorizar_query(query, embedder_id, device: str = "cpu"):
+	with medir("carga_modelo_query"):
+		modelo = cargar_sentence_transformer(embedder_id, device=device)
 	config = get_spec(embedder_id)
 	query = query.strip()
 	if config.prefijo_query:
 		query = config.prefijo_query + query
 	
-	if config.tarea_query:
-		vector = modelo.encode(query, normalize_embeddings=True, task=config.tarea_query)
-	else:
-		vector = modelo.encode(query, normalize_embeddings=True)
+	with medir("encode_query"):
+		if config.tarea_query:
+			vector = modelo.encode(query, normalize_embeddings=True, task=config.tarea_query)
+		else:
+			vector = modelo.encode(query, normalize_embeddings=True)
 
 	vector = vector.astype("float32").tolist()
 	return vector
 
+@cronometrar(etiqueta="tokenizacion_query_bm25")
 def tokenizar_query_bm25(query: str) -> str:
 	tokens = tokenizar(query)
 	return tokens_a_texto(tokens)
 
+@cronometrar(etiqueta="busqueda_bm25")
 def busqueda_sintactica(tabla, tokens_query, top_k=5):
 	filas = (
 		tabla.search(tokens_query, query_type="fts")
-		.limit(top_k)
+		.limit(top_k * FACTOR_OVERSAMPLING)
 		.to_list()
 	)
 
@@ -61,11 +65,12 @@ def busqueda_sintactica(tabla, tokens_query, top_k=5):
 		resultados.append(item)
 	return resultados
 
+@cronometrar(etiqueta="busqueda_densa")
 def busqueda_semantica(tabla, embed_query, top_k=5):
 	filas = (
 		tabla.search(embed_query)
 		.distance_type("cosine")
-		.limit(top_k)
+		.limit(top_k * FACTOR_OVERSAMPLING)
 		.to_list()
 	)
 
@@ -77,18 +82,18 @@ def busqueda_semantica(tabla, embed_query, top_k=5):
 		resultados.append(item)
 	return resultados
 
-def buscar(nombre_embedder, query, modo, top_k=5):
+def buscar(nombre_embedder, query, modo, top_k=5, device: str = "cpu"):
 	tabla = abrir_tabla(nombre_embedder)
 	
 	if modo == "bm25":
 		tokens_query = tokenizar_query_bm25(query)
 		return None, busqueda_sintactica(tabla, tokens_query, top_k)
 	elif modo == "denso":
-		vector_query = vectorizar_query(query, tabla.name)
+		vector_query = vectorizar_query(query, tabla.name, device=device)
 		return busqueda_semantica(tabla, vector_query, top_k), None
 	elif modo in ("rrf", "wrrf", "hibrido"):
 		tokens_query = tokenizar_query_bm25(query)
-		vector_query = vectorizar_query(query, tabla.name)
-		return busqueda_semantica(tabla, vector_query, top_k*FACTOR_OVERSAMPLING), busqueda_sintactica(tabla, tokens_query, top_k*FACTOR_OVERSAMPLING)
+		vector_query = vectorizar_query(query, tabla.name, device=device)
+		return busqueda_semantica(tabla, vector_query, top_k), busqueda_sintactica(tabla, tokens_query, top_k)
         
 	return None, None

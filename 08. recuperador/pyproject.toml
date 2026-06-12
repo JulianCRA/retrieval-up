@@ -11,7 +11,7 @@ dependencies = [
 	"compartido",
 	"lancedb>=0.14",
 	"tantivy>=0.22",
-	"sentence-transformers>=3.0,<4.0",
+	"sentence-transformers>=4.0,<6.0",
 	"numpy>=1.24",
 ]
 

@@ -1,16 +1,14 @@
-import time
-
 import soundfile as sf
 import torch
 from tqdm import tqdm
 from transformers import AutoProcessor, CohereAsrForConditionalGeneration
 
-from compartido.rutas import DESCARGAS_DIR
-from compartido.utils import cronometrar, crear_perfil_hardware
+from compartido.rutas import MODELOS_COHERE_DIR
+from compartido.utils import cronometrar, crear_perfil_hardware, medir
 from compartido.json_utils import cargar_archivo, guardar_archivo
 from .chunks import obtener_fragmentos_asr
 
-MODELOS_DIR = DESCARGAS_DIR / "modelos" / "cohere"
+MODELOS_DIR = MODELOS_COHERE_DIR
 MODEL_ID = "CohereLabs/cohere-transcribe-03-2026"
 
 PERFIL_COHERE = {
@@ -59,7 +57,7 @@ def _device_map(device: str) -> str:
     return device  # "mps", "cpu", "xpu"
 
 
-@cronometrar(etiqueta="Cargando modelo Cohere")
+@cronometrar(etiqueta="carga_modelo")
 def _cargar_modelo(params: dict):
     torch_dtype = _DTYPE_MAP[params["torch_dtype"]]
     device = params["device"]
@@ -79,17 +77,27 @@ def _cargar_modelo(params: dict):
     return processor, model
 
 
-@cronometrar(etiqueta="Transcripción total Cohere")
+_COHERE_CACHE: dict = {}
+
+
+def cargar_modelo(params: dict):
+    key = (params["device"], params["torch_dtype"])
+    if key in _COHERE_CACHE:
+        return _COHERE_CACHE[key]
+    result = _cargar_modelo(params)
+    _COHERE_CACHE[key] = result
+    return result
+
+
+@cronometrar(etiqueta="transcripcion")
 def transcribir_cohere(paths, idioma: str = "es", perfil=None):
     segmentos_raw = cargar_archivo(paths["segmentos"])["segmentos"]
     spans = obtener_fragmentos_asr(segmentos_raw, PERFIL_COHERE)
 
-    # hardware = crear_perfil_hardware(forzado={"device": "cpu", "cpu_physical_cores": 4})
     hardware = perfil if perfil is not None else crear_perfil_hardware()
     params = _computar_parametros(len(spans), hardware)
 
-    processor, model = _cargar_modelo(params)
-    carga_tiempo = round(_cargar_modelo.elapsed, 3)
+    processor, model = cargar_modelo(params)
 
     audio_data, sr = sf.read(str(paths["audio"]), dtype="float32", always_2d=False)
 
@@ -105,49 +113,43 @@ def transcribir_cohere(paths, idioma: str = "es", perfil=None):
 
     transcripciones = []
     batches = [spans[i:i + batch_size] for i in range(0, len(spans), batch_size)]
-    tiempo_inicio = time.perf_counter()
 
-    for batch_spans in tqdm(batches, desc="Transcribiendo", unit="lote"):
-        audios = [audio_data[int(s * sr):int(e * sr)] for s, e in batch_spans]
+    with medir("inferencia"):
+        for batch_spans in tqdm(batches, desc="Transcribiendo", unit="lote"):
+            audios = [audio_data[int(s * sr):int(e * sr)] for s, e in batch_spans]
 
-        inputs = processor(
-            audios,
-            sampling_rate=sr,
-            return_tensors="pt",
-            language=idioma,
-            padding=True,
-        )
-        inputs = {
-            k: (v.to(device=model_device, dtype=torch_dtype) if v.is_floating_point() else v.to(device=model_device))
-            if isinstance(v, torch.Tensor) else v
-            for k, v in inputs.items()
-        }
+            inputs = processor(
+                audios,
+                sampling_rate=sr,
+                return_tensors="pt",
+                language=idioma,
+                padding=True,
+            )
+            inputs = {
+                k: (v.to(device=model_device, dtype=torch_dtype) if v.is_floating_point() else v.to(device=model_device))
+                if isinstance(v, torch.Tensor) else v
+                for k, v in inputs.items()
+            }
 
-        with torch.inference_mode():
-            output_ids = model.generate(**inputs, max_new_tokens=256)
+            with torch.inference_mode():
+                output_ids = model.generate(**inputs, max_new_tokens=256)
 
-        for j, (inicio, fin) in enumerate(batch_spans):
-            texto = processor.decode(output_ids[j], skip_special_tokens=True).strip()
-            if texto:
-                transcripciones.append({
-                    "inicio": round(inicio, 3),
-                    "fin": round(fin, 3),
-                    "duracion": round(fin - inicio, 3),
-                    "texto": texto,
-                })
+            for j, (inicio, fin) in enumerate(batch_spans):
+                texto = processor.decode(output_ids[j], skip_special_tokens=True).strip()
+                if texto:
+                    transcripciones.append({
+                        "inicio": round(inicio, 3),
+                        "fin": round(fin, 3),
+                        "duracion": round(fin - inicio, 3),
+                        "texto": texto,
+                    })
 
-    tiempo_transcripcion = round(time.perf_counter() - tiempo_inicio, 3)
     transcripciones.sort(key=lambda x: x["inicio"])
     full_text = " ".join(t["texto"] for t in transcripciones)
 
     data = {
         "modelo": MODEL_ID,
-        "tiempo_carga": carga_tiempo,
         "hardware": params,
-        "tiempo_transcripcion": tiempo_transcripcion,
-        "tiempo_total": None,
-        "speed_up": None,
-        "rtf": None,
         "fragmentos": len(spans),
         "perfil_fragmentacion": PERFIL_COHERE,
         "transcripciones": transcripciones,

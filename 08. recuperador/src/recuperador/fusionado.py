@@ -1,4 +1,8 @@
-def rrf(resultados_semantica, resultados_sintactica, top_k = 5, k = 60):
+from compartido.utils import cronometrar
+
+
+@cronometrar(etiqueta="rrf")
+def rrf(resultados_semantica, resultados_sintactica, k = 60):
 	# indexar por id
 	indices_semantica: dict[str, dict] = {}
 	for fila in resultados_semantica:
@@ -23,8 +27,8 @@ def rrf(resultados_semantica, resultados_sintactica, top_k = 5, k = 60):
 	for id_documento, rank in ranks_sintactica.items():
 		combinado[id_documento] = combinado.get(id_documento, 0.0) + 1.0 / (k + rank)
 
-	# ordenar desc y truncar a top_k
-	ordenados = sorted(combinado.items(), key=lambda x: x[1], reverse=True)[:top_k]
+	# ordenar desc (sin truncar)
+	ordenados = sorted(combinado.items(), key=lambda x: x[1], reverse=True)
 
 	# construir la lista de salida con metadatos de trazabilidad
 	salida: list[dict] = []
@@ -45,7 +49,8 @@ def rrf(resultados_semantica, resultados_sintactica, top_k = 5, k = 60):
 		salida.append(base)
 	return salida
 
-def wrrf(resultados_semantica, resultados_sintactica, top_k = 5, k = 60, peso_semantica = 0.7):
+@cronometrar(etiqueta="wrrf")
+def wrrf(resultados_semantica, resultados_sintactica, k = 60, peso_semantica = 0.7):
 	# indexar por id
 	indices_semantica: dict[str, dict] = {}
 	for fila in resultados_semantica:
@@ -70,8 +75,8 @@ def wrrf(resultados_semantica, resultados_sintactica, top_k = 5, k = 60, peso_se
 	for id_documento, rank in ranks_sintactica.items():
 		combinado[id_documento] = combinado.get(id_documento, 0.0) + (1.0 - peso_semantica) * (1.0 / (k + rank))
 
-	# ordenar desc y truncar a top_k
-	ordenados = sorted(combinado.items(), key=lambda x: x[1], reverse=True)[:top_k]
+	# ordenar desc (sin truncar)
+	ordenados = sorted(combinado.items(), key=lambda x: x[1], reverse=True)
 
 	# construir la lista de salida con metadatos de trazabilidad
 	salida: list[dict] = []

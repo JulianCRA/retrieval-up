@@ -27,7 +27,7 @@ def _segmentos_overlap(
 	return cola_seg, cola_tok
 
 
-@cronometrar(etiqueta="Fragmentacion tamano fijo")
+@cronometrar(etiqueta="fragmentacion")
 def fragmentar(
 	transcripciones: list[dict],
 	sizer: Sizer,

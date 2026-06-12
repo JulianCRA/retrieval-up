@@ -2,6 +2,8 @@ import hashlib
 
 import time
 import functools
+import contextvars
+from contextlib import contextmanager
 
 import psutil
 import shutil
@@ -110,23 +112,115 @@ def forzar_perfil(perfil, forzado):
     
     return perfil
 
-def cronometrar(func=None, *, etiqueta=None):
-    """Decorator que imprime el tiempo de ejecución de una función.
-    
-    Uso directo:       @cronometrar
-    Con etiqueta:      @cronometrar(etiqueta="Descarga")
+def cronometrar(func=None, *, etiqueta=None, imprimir=True):
+    """Decorator que mide el tiempo de ejecucion de una funcion.
+
+    - Imprime `[TIEMPO] <etiqueta>: X.XXs` por defecto.
+    - Si hay un `Cronometro` activo en el contexto (ver `cronometro_activo`),
+      acumula el tiempo bajo `etiqueta` (suma sobre invocaciones).
+    - Conserva `wrapper.elapsed` con el tiempo de la ultima llamada
+      (compatibilidad hacia atras).
+
+    Uso:
+        @cronometrar
+        @cronometrar(etiqueta="Carga modelo")
+        @cronometrar(etiqueta="...", imprimir=False)
     """
     if func is None:
-        return lambda f: cronometrar(f, etiqueta=etiqueta)
+        return lambda f: cronometrar(f, etiqueta=etiqueta, imprimir=imprimir)
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         nombre = etiqueta or func.__name__
         inicio = time.perf_counter()
-        resultado = func(*args, **kwargs)
-        wrapper.elapsed = time.perf_counter() - inicio
-        print(f"[TIEMPO] {nombre}: {wrapper.elapsed:.2f}s")
-        return resultado
+        try:
+            return func(*args, **kwargs)
+        finally:
+            elapsed = time.perf_counter() - inicio
+            wrapper.elapsed = elapsed
+            crono = _cronometro_actual()
+            if crono is not None:
+                crono.registrar(nombre, elapsed)
+            if imprimir:
+                print(f"[TIEMPO] {nombre}: {elapsed:.2f}s")
 
     wrapper.elapsed = None
     return wrapper
+
+
+# ── Esquema uniforme de tiempos ──────────────────────────────────────────────
+#
+# Cada modulo envuelve su trabajo por hash con `with cronometro_activo() as
+# crono:` y al final escribe (o imprime) `crono.resumen()`. El resultado es
+# un dict plano `{"<etiqueta>": segundos, ..., "_total": segundos}` que se
+# embebe bajo la clave `"tiempos"` en el JSON de salida correspondiente.
+
+_PILA_CRONOMETROS: contextvars.ContextVar = contextvars.ContextVar(
+    "_pila_cronometros", default=()
+)
+
+
+class Cronometro:
+    """Acumulador de tiempos por etiqueta.
+
+    El `_total` se mide desde la creacion del cronometro hasta `resumen()`.
+    Si una etiqueta se registra varias veces, los segundos se suman.
+    """
+
+    def __init__(self):
+        self._t0 = time.perf_counter()
+        self._registros: dict[str, float] = {}
+
+    def registrar(self, etiqueta: str, segundos: float) -> None:
+        self._registros[etiqueta] = self._registros.get(etiqueta, 0.0) + segundos
+
+    @contextmanager
+    def medir(self, etiqueta: str, imprimir: bool = True):
+        inicio = time.perf_counter()
+        try:
+            yield
+        finally:
+            elapsed = time.perf_counter() - inicio
+            self.registrar(etiqueta, elapsed)
+            if imprimir:
+                print(f"[TIEMPO] {etiqueta}: {elapsed:.2f}s")
+
+    def resumen(self, decimales: int = 3) -> dict:
+        salida = {k: round(v, decimales) for k, v in self._registros.items()}
+        salida["_total"] = round(time.perf_counter() - self._t0, decimales)
+        return salida
+
+
+def _cronometro_actual() -> Cronometro | None:
+    pila = _PILA_CRONOMETROS.get()
+    return pila[-1] if pila else None
+
+
+@contextmanager
+def cronometro_activo(cronometro: Cronometro | None = None):
+    """Activa un `Cronometro` durante el bloque. `@cronometrar` y `medir`
+    registran sus tiempos en el cronometro mas reciente de la pila."""
+    crono = cronometro or Cronometro()
+    pila = _PILA_CRONOMETROS.get()
+    token = _PILA_CRONOMETROS.set(pila + (crono,))
+    try:
+        yield crono
+    finally:
+        _PILA_CRONOMETROS.reset(token)
+
+
+@contextmanager
+def medir(etiqueta: str, imprimir: bool = True):
+    """Context manager para medir un bloque de codigo y registrarlo en el
+    cronometro activo (si lo hay). Equivalente a un `@cronometrar` puntual."""
+    inicio = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed = time.perf_counter() - inicio
+        crono = _cronometro_actual()
+        if crono is not None:
+            crono.registrar(etiqueta, elapsed)
+        if imprimir:
+            print(f"[TIEMPO] {etiqueta}: {elapsed:.2f}s")
+
