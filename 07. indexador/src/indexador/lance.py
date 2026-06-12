@@ -41,6 +41,7 @@ def esquema(dim: int) -> pa.Schema:
 		pa.field("uri", pa.string()),
 		pa.field("fuente", pa.string()),
 		pa.field("tags", pa.string()),
+		pa.field("tiempos_json", pa.string()),
 		pa.field("vector", pa.list_(pa.float32(), dim)),
 	])
 

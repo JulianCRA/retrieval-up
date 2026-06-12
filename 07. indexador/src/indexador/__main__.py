@@ -169,6 +169,7 @@ def _procesar_hash(
 	vectores_npz_path = folder / "vectores.npz"
 	info_path = folder / "info.json"
 
+	tiempos_previos: dict = {}
 	with cronometro_activo() as crono:
 		with medir("lectura_fragmentos"):
 			data = ju.cargar_archivo(fragmentos_path)
@@ -195,6 +196,18 @@ def _procesar_hash(
 		if not meta_vec:
 			print(f"[ERROR] No se pudo cargar '{vectores_meta_path}'.")
 			sys.exit(1)
+
+		# --- Tiempos de etapas anteriores ---
+		_transcripciones_meta = ju.cargar_archivo(folder / "transcripciones.json")
+		_correcciones_meta = ju.cargar_archivo(folder / "correcciones.json")
+		tiempos_previos = {
+			"descarga": (info.get("descarga") or {}).get("tiempos") or {},
+			"procesamiento": (info.get("procesamiento") or {}).get("tiempos") or {},
+			"transcripcion": (_transcripciones_meta or {}).get("tiempos") or {},
+			"correccion": (_correcciones_meta or {}).get("tiempos") or {},
+			"fragmentacion": data.get("tiempos") or {},
+			"vectorizacion": meta_vec.get("tiempos") or {},
+		}
 
 		embedder_id = embedder or meta_vec.get("embedder")
 		if not embedder_id:
@@ -241,6 +254,7 @@ def _procesar_hash(
 		# --- LanceDB: construir filas y escribir ---
 		tags_json = json.dumps(tags, ensure_ascii=False)
 		tokens_por_segmento = _tokenizar_segmentos(fragmentos)
+		tiempos_json = json.dumps({**tiempos_previos, "indexacion": crono.resumen()}, ensure_ascii=False)
 
 		filas = []
 		for i, frag in enumerate(fragmentos):
@@ -266,6 +280,7 @@ def _procesar_hash(
 				"uri": uri,
 				"fuente": fuente,
 				"tags": tags_json,
+				"tiempos_json": tiempos_json,
 				"vector": embeddings[i].tolist(),
 			})
 

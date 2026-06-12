@@ -188,6 +188,29 @@ class Sizer:
 		return piezas
 
 
+def _parchear_jina_lora() -> None:
+	"""Parcha el archivo modeling_lora.py cacheado de jina-embeddings-v3 si le
+	falta la llamada a self.post_init() al final de XLMRobertaLoRA.__init__,
+	requerida desde transformers>=5.x para inicializar all_tied_weights_keys."""
+	import pathlib
+	cache_base = pathlib.Path.home() / ".cache" / "huggingface" / "modules" / "transformers_modules" / "jinaai"
+	if not cache_base.exists():
+		return
+	for lora_file in cache_base.rglob("modeling_lora.py"):
+		text = lora_file.read_text(encoding="utf-8")
+		# Ya parchado
+		if "post_init" in text:
+			continue
+		# Insertar self.post_init() justo antes del primer @property tras el __init__
+		patched = text.replace(
+			"        self.main_params_trainable = config.lora_main_params_trainable\n\n    @property",
+			"        self.main_params_trainable = config.lora_main_params_trainable\n        self.post_init()\n\n    @property",
+		)
+		if patched != text:
+			lora_file.write_text(patched, encoding="utf-8")
+			print(f"[OK] Parche post_init aplicado en: {lora_file}")
+
+
 def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	"""Carga el modelo como SentenceTransformer (para boundary detection / vectorizacion).
 	Import perezoso para que el solo conteo de tokens no requiera torch.
@@ -201,6 +224,7 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	kwargs: dict = {"cache_folder": str(MODELOS_DIR), "device": device}
 	if spec.trust_remote_code:
 		kwargs["trust_remote_code"] = True
+		_parchear_jina_lora()
 
 	_PRINT_SUPPRESS = {"flash_attn is not installed"}
 
