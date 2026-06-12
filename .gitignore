@@ -11,6 +11,14 @@ __pycache__/
 data/
 outputs/
 descargas/
+docs/
+modelos/
+indice/
+resultados/
+
 
 *.egg-info/
 notas.md
+reconstruir.py
+entrypoint.py
+instalar.py
