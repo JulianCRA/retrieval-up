@@ -289,6 +289,9 @@ def _procesar_hash(
 		with medir("escritura_db"):
 			backend_mod.escribir_tabla(db, nombre_tabla, lance_filas, dim=dim, reclear=reclear)
 
+		ju.guardar_nodo(folder / "info.json", "status", 7)
+		ju.guardar_registro("status", 7, ruta=(hash_id,))
+
 	print(f"[TIEMPOS] hash={hash_id}: {crono.resumen()}")
 
 

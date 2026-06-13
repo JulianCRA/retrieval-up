@@ -99,6 +99,8 @@ def procesar_hash(hash_id: str, backend: str = "silero", perfil=None):
 			}
 			if ju.guardar_archivo(correcciones_path, resultado):
 				print(f"[OK] Correcciones guardadas en '{correcciones_path}'.")
+				ju.guardar_nodo(folder / "info.json", "status", 4)
+				ju.guardar_registro("status", 4, ruta=(hash_id,))
 				return
 			raise RuntimeError(f"No se pudo guardar '{correcciones_path}'.")
 
@@ -141,6 +143,8 @@ def procesar_hash(hash_id: str, backend: str = "silero", perfil=None):
 
 		if ju.guardar_archivo(correcciones_path, resultado):
 			print(f"[OK] Correcciones guardadas en '{correcciones_path}'.")
+			ju.guardar_nodo(folder / "info.json", "status", 4)
+			ju.guardar_registro("status", 4, ruta=(hash_id,))
 			return
 
 		raise RuntimeError(f"No se pudo guardar '{correcciones_path}'.")

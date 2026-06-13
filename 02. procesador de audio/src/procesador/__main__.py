@@ -259,6 +259,7 @@ def guardar_datos_procesamiento(folder, metodo, segmentos, tiempos, ruta_nueva):
 
     if ok:
         ju.guardar_nodo(ruta_info, "status", 2)
+        ju.guardar_registro("status", 2, ruta=(folder.name,))
 
 if __name__ == "__main__":
     main()

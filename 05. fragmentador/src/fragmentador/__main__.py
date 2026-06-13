@@ -245,6 +245,8 @@ def _procesar_hash(
 		if ju.guardar_archivo(fragmentos_path, resultado):
 			print(f"[OK] Fragmentos guardados en '{fragmentos_path}'.")
 			_guardar_historial(folder, spec.id_corto, resultado)
+			ju.guardar_nodo(folder / "info.json", "status", 5)
+			ju.guardar_registro("status", 5, ruta=(hash_id,))
 			return
 
 		print(f"[ERROR] No se pudo guardar '{fragmentos_path}'.")

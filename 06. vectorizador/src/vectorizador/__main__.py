@@ -197,6 +197,8 @@ def _procesar_hash(
 		vectores_meta_path = folder / "vectores.json"
 		if ju.guardar_archivo(vectores_meta_path, resultado_meta):
 			print(f"[OK] Metadatos guardados en '{vectores_meta_path}'.")
+			ju.guardar_nodo(folder / "info.json", "status", 6)
+			ju.guardar_registro("status", 6, ruta=(hash_id,))
 			return
 
 		print(f"[ERROR] No se pudo guardar '{vectores_meta_path}'.")

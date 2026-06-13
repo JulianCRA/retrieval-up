@@ -113,12 +113,16 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
         tiempos = crono.resumen()
         rt_factor = round(tiempos["_total"] / duracion, 3) if duracion > 0 else None
         speed_up = round(1 / rt_factor, 2) if rt_factor and rt_factor > 0 else None
-        ju.guardar_nodos(paths["transcripciones"], {
+        ok = ju.guardar_nodos(paths["transcripciones"], {
             "tiempos": tiempos,
             "duracion_audio": round(duracion, 2),
             "rt_factor": rt_factor,
             "speed_up": f"{speed_up}x" if speed_up is not None else None,
         })
+        if ok:
+            folder = audio_path.parent
+            ju.guardar_nodo(folder / "info.json", "status", 3)
+            ju.guardar_registro("status", 3, ruta=(folder.name,))
 
 if __name__ == "__main__":
     main()
