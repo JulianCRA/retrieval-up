@@ -22,26 +22,11 @@ def _listar(db: lancedb.DBConnection) -> list[str]:
 
 
 def esquema(dim: int) -> pa.Schema:
-	segmento_t = pa.struct([
-		pa.field("inicio", pa.float32()),
-		pa.field("fin", pa.float32()),
-		pa.field("texto", pa.string()),
-		pa.field("texto_bm25", pa.string()),
-	])
 	return pa.schema([
 		pa.field("id", pa.string()),
 		pa.field("hash", pa.string()),
-		pa.field("chunk_idx", pa.int32()),
-		pa.field("texto", pa.string()),
 		pa.field("texto_bm25", pa.string()),
-		pa.field("inicio", pa.float32()),
-		pa.field("fin", pa.float32()),
-		pa.field("segmentos", pa.list_(segmento_t)),
-		pa.field("titulo", pa.string()),
-		pa.field("uri", pa.string()),
-		pa.field("fuente", pa.string()),
 		pa.field("tags", pa.string()),
-		pa.field("tiempos_json", pa.string()),
 		pa.field("vector", pa.list_(pa.float32(), dim)),
 	])
 

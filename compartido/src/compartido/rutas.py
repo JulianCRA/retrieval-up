@@ -7,6 +7,7 @@ DESCARGAS_DIR = RAIZ / "descargas"
 DESCARGAS_DIR.mkdir(parents=True, exist_ok=True)
 
 INDICE_DIR = RAIZ / "indice"
+INDICE_DB = INDICE_DIR / "indice.db"
 
 MODELOS_DIR = RAIZ / "modelos"
 MODELOS_EMBEDDINGS_DIR = MODELOS_DIR / "embeddings"

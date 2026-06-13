@@ -4,7 +4,7 @@ from datetime import datetime
 from compartido.rutas import RESULTADOS_DIR
 from compartido.sqlite_utils import guardar_busqueda_completa
 
-_EXCLUIR = {"vector", "texto_bm25"}
+_EXCLUIR = {"vector", "texto_bm25", "segmentos_json"}
 
 
 def _filas_limpias(filas) -> list[dict]:

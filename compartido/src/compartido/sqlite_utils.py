@@ -149,7 +149,7 @@ def insertar_resultados(busqueda_id: int, filas: list[dict]) -> None:
         (
             busqueda_id,
             fila.get("rank"),
-            fila.get("video_id"),
+            fila.get("video_id") or fila.get("hash"),
             fila.get("titulo") or fila.get("fuente"),
             fila.get("chunk_idx"),
             fila.get("score"),

@@ -1,5 +1,6 @@
 import lancedb
 
+import compartido.indice_utils as iu
 from compartido.embedders import cargar_sentence_transformer, get_spec
 from compartido.bm25 import tokenizar, tokens_a_texto
 from compartido.utils import cronometrar, medir
@@ -87,13 +88,17 @@ def buscar(nombre_embedder, query, modo, top_k=5, device: str = "cpu"):
 	
 	if modo == "bm25":
 		tokens_query = tokenizar_query_bm25(query)
-		return None, busqueda_sintactica(tabla, tokens_query, top_k)
+		resultados = iu.enriquecer(busqueda_sintactica(tabla, tokens_query, top_k))
+		return None, resultados
 	elif modo == "denso":
 		vector_query = vectorizar_query(query, tabla.name, device=device)
-		return busqueda_semantica(tabla, vector_query, top_k), None
+		resultados = iu.enriquecer(busqueda_semantica(tabla, vector_query, top_k))
+		return resultados, None
 	elif modo in ("rrf", "wrrf", "hibrido"):
 		tokens_query = tokenizar_query_bm25(query)
 		vector_query = vectorizar_query(query, tabla.name, device=device)
-		return busqueda_semantica(tabla, vector_query, top_k), busqueda_sintactica(tabla, tokens_query, top_k)
+		semantica = iu.enriquecer(busqueda_semantica(tabla, vector_query, top_k))
+		sintactica = iu.enriquecer(busqueda_sintactica(tabla, tokens_query, top_k))
+		return semantica, sintactica
         
 	return None, None

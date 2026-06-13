@@ -5,6 +5,7 @@ import sys
 import numpy as np
 
 from compartido import json_utils as ju
+import compartido.indice_utils as iu
 from compartido.rutas import DESCARGAS_DIR, INDICE_DIR
 from compartido.embedders import listar_ids
 from compartido.utils import cronometrar, cronometro_activo, medir
@@ -146,14 +147,6 @@ def _tokenizar_fragmentos(fragmentos: list[dict]) -> list[list[str]]:
 	return [tokenizar(f["texto"]) for f in fragmentos]
 
 
-@cronometrar(etiqueta="tokenizacion_bm25_segmentos")
-def _tokenizar_segmentos(fragmentos: list[dict]) -> list[list[list[str]]]:
-	return [
-		[tokenizar(s.get("texto", "")) for s in (frag.get("segmentos") or [])]
-		for frag in fragmentos
-	]
-
-
 def _procesar_hash(
 	hash_id: str,
 	db,
@@ -251,43 +244,60 @@ def _procesar_hash(
 		# --- BM25: tokenizar ---
 		tokens_por_fragmento = _tokenizar_fragmentos(fragmentos)
 
-		# --- LanceDB: construir filas y escribir ---
+		# --- Construir filas ---
 		tags_json = json.dumps(tags, ensure_ascii=False)
-		tokens_por_segmento = _tokenizar_segmentos(fragmentos)
 		tiempos_json = json.dumps({**tiempos_previos, "indexacion": crono.resumen()}, ensure_ascii=False)
 
-		filas = []
+		lance_filas = []
+		chunk_filas = []
 		for i, frag in enumerate(fragmentos):
+			chunk_id = f"{hash_id}:{i}"
 			segmentos = [
 				{
 					"inicio": float(s.get("inicio", 0.0)),
 					"fin": float(s.get("fin", 0.0)),
 					"texto": s.get("texto", ""),
-					"texto_bm25": tokens_a_texto(tokens_por_segmento[i][j]),
 				}
-				for j, s in enumerate(frag.get("segmentos") or [])
+				for s in (frag.get("segmentos") or [])
 			]
-			filas.append({
-				"id": f"{hash_id}:{i}",
+			lance_filas.append({
+				"id": chunk_id,
+				"hash": hash_id,
+				"texto_bm25": tokens_a_texto(tokens_por_fragmento[i]),
+				"tags": tags_json,
+				"vector": embeddings[i].tolist(),
+			})
+			chunk_filas.append({
+				"id": chunk_id,
 				"hash": hash_id,
 				"chunk_idx": i,
 				"texto": frag.get("texto", ""),
-				"texto_bm25": tokens_a_texto(tokens_por_fragmento[i]),
 				"inicio": float(frag.get("inicio", 0.0)),
 				"fin": float(frag.get("fin", 0.0)),
-				"segmentos": segmentos,
-				"titulo": titulo,
-				"uri": uri,
-				"fuente": fuente,
-				"tags": tags_json,
-				"tiempos_json": tiempos_json,
-				"vector": embeddings[i].tolist(),
+				"segmentos_json": json.dumps(segmentos, ensure_ascii=False),
 			})
 
+		# --- Thumbnail ---
+		thumbnail = _cargar_thumbnail(folder)
+
+		# --- SQLite ---
+		iu.crear_tablas()
+		iu.escribir_recurso(hash_id, titulo, uri, fuente, tiempos_json=tiempos_json, thumbnail=thumbnail)
+		with medir("escritura_sqlite"):
+			iu.escribir_chunks(chunk_filas)
+
 		with medir("escritura_db"):
-			backend_mod.escribir_tabla(db, nombre_tabla, filas, dim=dim, reclear=reclear)
+			backend_mod.escribir_tabla(db, nombre_tabla, lance_filas, dim=dim, reclear=reclear)
 
 	print(f"[TIEMPOS] hash={hash_id}: {crono.resumen()}")
+
+
+def _cargar_thumbnail(folder) -> bytes | None:
+	for ext in (".jpg", ".jpeg", ".webp", ".png"):
+		matches = list(folder.glob(f"*{ext}"))
+		if matches:
+			return matches[0].read_bytes()
+	return None
 
 
 if __name__ == "__main__":
