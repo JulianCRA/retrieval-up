@@ -23,7 +23,7 @@ OPTS = {
         "geo_bypass": True,
         "no_warnings": True,
         "quiet": False,
-        "writethumbnail": False,
+        "writethumbnail": True,
         "enable_file_urls": True,
         "postprocessors": [
             {"key": "FFmpegExtractAudio", "preferredcodec": "wav", "preferredquality": "0"}
