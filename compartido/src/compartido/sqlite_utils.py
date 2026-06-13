@@ -94,6 +94,17 @@ def crear_tablas() -> None:
         if "query_vector" not in columnas:
             conn.execute("ALTER TABLE busquedas ADD COLUMN query_vector BLOB")
             conn.commit()
+        cols_res = {row[1] for row in conn.execute("PRAGMA table_info(resultados)")}
+        for col, defn in [
+            ("score_rerank", "REAL"),
+            ("score_denso",  "REAL"),
+            ("score_bm25",   "REAL"),
+            ("rank_denso",   "INTEGER"),
+            ("rank_bm25",    "INTEGER"),
+        ]:
+            if col not in cols_res:
+                conn.execute(f"ALTER TABLE resultados ADD COLUMN {col} {defn}")
+        conn.commit()
     finally:
         conn.close()
 
