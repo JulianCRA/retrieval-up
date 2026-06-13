@@ -126,8 +126,10 @@ def leer_archivo_de_texto(archivo):
     return uris
 
 def procesar_batch(uris):
-    print(f"[INFO] Procesando {len(uris)} recursos...")
-    for uri in uris:
+    total = len(uris)
+    print(f"[INFO] Preparando descarga de {total} recursos...")
+    for i, uri in enumerate(uris, 1):
+        print(f"\n[PIPELINE] Procesando recurso {i} de {total}")
         procesar_recurso(uri)
 
 def registrar_descarga(r_id, uri, info):

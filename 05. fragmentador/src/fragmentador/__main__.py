@@ -144,7 +144,9 @@ def procesar(
 		with medir(f"carga_modelo_boundary ({boundary_id})"):
 			boundary_model = cargar_sentence_transformer(boundary_id, device)
 
-	for hash_id in hashes:
+	total = len(hashes)
+	for i, hash_id in enumerate(hashes, 1):
+		print(f"\n[PIPELINE] Fragmentando recurso {i} de {total}")
 		_procesar_hash(
 			hash_id,
 			spec=spec,

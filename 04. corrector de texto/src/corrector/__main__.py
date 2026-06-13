@@ -43,7 +43,9 @@ def procesar(hashes: list[str], backend: str = "silero", forzar_cpu: bool = Fals
 	# Model is loaded lazily inside procesar_hash, only for hashes that actually need correction.
 
 	fallos: list[str] = []
-	for hash_id in hashes:
+	total = len(hashes)
+	for i, hash_id in enumerate(hashes, 1):
+		print(f"\n[PIPELINE] Corrigiendo texto {i} de {total}")
 		try:
 			procesar_hash(hash_id, backend=backend, perfil=perfil)
 		except Exception as e:

@@ -59,7 +59,9 @@ def procesar(hashes: list[str], modelo="vosk", forzar_cpu: bool = False):
     forzado = {"device": "cpu"} if forzar_cpu else None
     perfil = crear_perfil_hardware(forzado=forzado)
     fallos: list[str] = []
-    for hash in hashes:
+    total = len(hashes)
+    for i, hash in enumerate(hashes, 1):
+        print(f"\n[PIPELINE] Transcribiendo recurso {i} de {total}")
         try:
             procesar_hash(hash, modelo, perfil=perfil)
         except Exception as e:

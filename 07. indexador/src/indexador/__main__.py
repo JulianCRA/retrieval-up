@@ -128,7 +128,9 @@ def procesar(
 ):
 	mod = importlib.import_module(f"indexador.{backend}")
 	db = mod.abrir(db_ruta)
-	for hash_id in hashes:
+	total = len(hashes)
+	for i, hash_id in enumerate(hashes, 1):
+		print(f"\n[PIPELINE] Indexando recurso {i} de {total}")
 		_procesar_hash(
 			hash_id,
 			db=db,

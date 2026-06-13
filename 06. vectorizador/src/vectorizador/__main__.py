@@ -117,7 +117,9 @@ def procesar(
 
 	model = cargar_modelo(embedder_id, device)
 
-	for hash_id in hashes:
+	total = len(hashes)
+	for i, hash_id in enumerate(hashes, 1):
+		print(f"\n[PIPELINE] Vectorizando recurso {i} de {total}")
 		_procesar_hash(
 			hash_id,
 			model=model,

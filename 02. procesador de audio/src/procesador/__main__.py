@@ -86,8 +86,10 @@ def procesar(hashes: list[str], metodo=None):
         print(f"[INFO] Pool compartido de {n_workers} workers Silero creado para {len(hashes)} hash(es).")
 
     fallos: list[str] = []
+    total = len(hashes)
     try:
-        for hash in hashes:
+        for i, hash in enumerate(hashes, 1):
+            print(f"\n[PIPELINE] Procesando audio {i} de {total}")
             try:
                 procesar_hash(hash, metodo, perfil=perfil, executor=executor)
             except BrokenProcessPool as e:
