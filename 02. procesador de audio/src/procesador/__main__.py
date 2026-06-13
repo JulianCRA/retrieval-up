@@ -73,11 +73,12 @@ Métodos de detección de voz (VAD):
     procesar(args.hashes, args.metodo)
 
 def procesar(hashes: list[str], metodo=None):
-    from concurrent.futures import ProcessPoolExecutor
+    from concurrent.futures import ProcessPoolExecutor, BrokenExecutor as BrokenProcessPool
     from procesador.vad_silero import _init_worker
 
     perfil = crear_perfil_hardware(forzado={"device": "cpu"})
     executor = None
+    n_workers = None
     if metodo == "silero":
         import psutil
         n_workers = psutil.cpu_count(logical=False)
@@ -89,6 +90,16 @@ def procesar(hashes: list[str], metodo=None):
         for hash in hashes:
             try:
                 procesar_hash(hash, metodo, perfil=perfil, executor=executor)
+            except BrokenProcessPool as e:
+                print(f"[ERROR] Hash '{hash}': {e}")
+                fallos.append(hash)
+                if metodo == "silero":
+                    try:
+                        executor.shutdown(wait=False)
+                    except Exception:
+                        pass
+                    executor = ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker)
+                    print(f"[INFO] Pool recreado tras fallo de worker.")
             except Exception as e:
                 print(f"[ERROR] Hash '{hash}': {e}")
                 fallos.append(hash)

@@ -198,10 +198,8 @@ def _parchear_jina_lora() -> None:
 		return
 	for lora_file in cache_base.rglob("modeling_lora.py"):
 		text = lora_file.read_text(encoding="utf-8")
-		# Ya parchado
 		if "post_init" in text:
 			continue
-		# Insertar self.post_init() justo antes del primer @property tras el __init__
 		patched = text.replace(
 			"        self.main_params_trainable = config.lora_main_params_trainable\n\n    @property",
 			"        self.main_params_trainable = config.lora_main_params_trainable\n        self.post_init()\n\n    @property",
@@ -209,6 +207,21 @@ def _parchear_jina_lora() -> None:
 		if patched != text:
 			lora_file.write_text(patched, encoding="utf-8")
 			print(f"[OK] Parche post_init aplicado en: {lora_file}")
+	for emb_file in cache_base.rglob("embedding.py"):
+		text = emb_file.read_text(encoding="utf-8")
+		if "from transformers.models.xlm_roberta.modeling_xlm_roberta import create_position_ids_from_input_ids" not in text:
+			continue
+		patched = text.replace(
+			"from transformers.models.xlm_roberta.modeling_xlm_roberta import create_position_ids_from_input_ids",
+			"def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_length=0):\n"
+			"    \"\"\"Inlined from transformers<=4.x (removed in 5.x).\"\"\"\n"
+			"    import torch\n"
+			"    mask = input_ids.ne(padding_idx).int()\n"
+			"    incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask\n"
+			"    return incremental_indices.long() + padding_idx",
+		)
+		emb_file.write_text(patched, encoding="utf-8")
+		print(f"[OK] Parche create_position_ids aplicado en: {emb_file}")
 
 
 def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):

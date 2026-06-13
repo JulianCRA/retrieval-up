@@ -86,6 +86,14 @@ def crear_tablas() -> None:
             );
         """)
         conn.commit()
+        # Migraciones: añade columnas nuevas si la tabla ya existía sin ellas
+        columnas = {row[1] for row in conn.execute("PRAGMA table_info(busquedas)")}
+        if "query_bm25" not in columnas:
+            conn.execute("ALTER TABLE busquedas ADD COLUMN query_bm25 TEXT")
+            conn.commit()
+        if "query_vector" not in columnas:
+            conn.execute("ALTER TABLE busquedas ADD COLUMN query_vector BLOB")
+            conn.commit()
     finally:
         conn.close()
 

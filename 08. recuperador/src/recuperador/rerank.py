@@ -14,12 +14,15 @@ _modelo_cache: dict = {}
 @cronometrar(etiqueta="carga_reranker")
 def _cargar_modelo(reranker_id: str, device: str = "cpu"):
     from sentence_transformers import CrossEncoder
+    from compartido.embedders import _parchear_jina_lora
 
     cache_key = (reranker_id, device)
     if cache_key not in _modelo_cache:
         model_name = RERANKERS[reranker_id]
         print(f"[reranker] Cargando '{model_name}' en {device}...")
         trust = reranker_id in _TRUST_REMOTE_CODE
+        if trust:
+            _parchear_jina_lora()
         _modelo_cache[cache_key] = CrossEncoder(model_name, device=device, trust_remote_code=trust)
     return _modelo_cache[cache_key]
 
