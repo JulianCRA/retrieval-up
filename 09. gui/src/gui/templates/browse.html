@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block title %}Recursos — retrieval-up{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Search bar ── */
+  .search-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+  }
+  .search-row input[type="search"] {
+    flex: 1 1 260px;
+    margin: 0;
+  }
+  .search-row button { margin: 0; white-space: nowrap; }
+  .search-meta { color: var(--pico-muted-color); font-size: 0.88rem; }
+
+  /* ── Grid ── */
+  .resources-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1rem;
+  }
+
+  /* ── Card ── */
+  .resource-card {
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--pico-card-background-color);
+    transition: box-shadow 0.15s;
+  }
+  .resource-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+
+  .card-thumb {
+    width: 100%;
+    aspect-ratio: 16/9;
+    object-fit: cover;
+    background: var(--pico-muted-border-color);
+    display: block;
+  }
+  .card-thumb-placeholder {
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: var(--pico-muted-border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--pico-muted-color);
+    font-size: 2rem;
+  }
+
+  .card-body {
+    padding: 0.65rem 0.75rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    flex: 1;
+  }
+
+  .card-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    line-height: 1.35;
+    /* clamp to 3 lines */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .card-uri {
+    font-size: 0.78rem;
+    word-break: break-all;
+    color: var(--pico-primary);
+  }
+
+  .card-meta {
+    font-size: 0.76rem;
+    color: var(--pico-muted-color);
+    margin-top: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.6rem;
+  }
+
+  .tag {
+    display: inline-block;
+    background: var(--pico-primary-background);
+    color: var(--pico-primary);
+    border-radius: 999px;
+    padding: 0.05rem 0.5rem;
+    font-size: 0.72rem;
+  }
+  .tags-row { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.2rem; }
+
+  /* ── Pagination ── */
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    margin-top: 2rem;
+    flex-wrap: wrap;
+  }
+  .pagination a, .pagination span {
+    min-width: 2.2rem;
+    height: 2.2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    text-decoration: none;
+    font-size: 0.88rem;
+    color: var(--pico-color);
+    padding: 0 0.45rem;
+  }
+  .pagination a:hover { border-color: var(--pico-primary); color: var(--pico-primary); }
+  .pagination .current {
+    background: var(--pico-primary);
+    color: var(--pico-primary-inverse);
+    border-color: var(--pico-primary);
+    font-weight: 600;
+  }
+  .pagination .disabled { color: var(--pico-muted-color); pointer-events: none; }
+
+  .empty-state {
+    text-align: center;
+    padding: 4rem 1rem;
+    color: var(--pico-muted-color);
+  }
+  .empty-state big { font-size: 3rem; display: block; margin-bottom: 0.5rem; }
+</style>
+
+<h2>Recursos indexados</h2>
+
+{# ── Search ── #}
+<form method="get" action="/browse" role="search">
+  <div class="search-row">
+    <input type="search" name="q" value="{{ q }}" placeholder="Filtrar por título…" />
+    <button type="submit">Buscar</button>
+    {% if q %}
+    <a href="/browse" role="button" class="secondary outline">Limpiar</a>
+    {% endif %}
+  </div>
+</form>
+
+<p class="search-meta">
+  {% if q %}
+    {{ total }} resultado{% if total != 1 %}s{% endif %} para <em>"{{ q }}"</em> &mdash;
+  {% else %}
+    {{ total }} recurso{% if total != 1 %}s{% endif %} en total &mdash;
+  {% endif %}
+  página {{ page }} de {{ total_pages }}
+</p>
+
+{# ── Grid ── #}
+{% if recursos %}
+<div class="resources-grid">
+  {% for r in recursos %}
+  <article class="resource-card">
+    {# Thumbnail or placeholder #}
+    {% if r.has_thumbnail %}
+    <img class="card-thumb" src="/thumbnail/{{ r.hash }}" alt="miniatura de {{ r.titulo }}" loading="lazy" />
+    {% else %}
+    <div class="card-thumb-placeholder" aria-hidden="true">▶</div>
+    {% endif %}
+
+    <div class="card-body">
+      <div class="card-title" title="{{ r.titulo }}">{{ r.titulo or r.hash }}</div>
+
+      {% if r.uri %}
+      <a class="card-uri" href="{{ r.uri }}" target="_blank" rel="noopener noreferrer"
+         title="{{ r.uri }}">{{ r.uri | truncate(60, True, '…') }}</a>
+      {% endif %}
+
+      <div class="card-meta">
+        {% if r.fuente %}<span>{{ r.fuente }}</span>{% endif %}
+        {% if r.duracion %}
+        <span title="duración">⏱ {{ r.duracion | hhmmss }}</span>
+        {% endif %}
+        {% if r.num_chunks %}
+        <span title="fragmentos">✦ {{ r.num_chunks }} chunk{% if r.num_chunks != 1 %}s{% endif %}</span>
+        {% endif %}
+      </div>
+
+      {% if r.tags %}
+      <div class="tags-row">
+        {% for tag in r.tags[:5] %}
+        <span class="tag">{{ tag }}</span>
+        {% endfor %}
+        {% if r.tags | length > 5 %}
+        <span class="tag">+{{ r.tags | length - 5 }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+
+{# ── Pagination ── #}
+{% if total_pages > 1 %}
+<nav class="pagination" aria-label="paginación">
+  {# Prev #}
+  {% if page > 1 %}
+  <a href="/browse?{{ 'q=' + q + '&' if q }}page={{ page - 1 }}" aria-label="anterior">&lsaquo;</a>
+  {% else %}
+  <span class="disabled">&lsaquo;</span>
+  {% endif %}
+
+  {# Page numbers — show window of 7 around current #}
+  {% set window = 3 %}
+  {% set p_start = [1, page - window] | max %}
+  {% set p_end   = [total_pages, page + window] | min %}
+
+  {% if p_start > 1 %}
+  <a href="/browse?{{ 'q=' + q + '&' if q }}page=1">1</a>
+  {% if p_start > 2 %}<span>…</span>{% endif %}
+  {% endif %}
+
+  {% for p in range(p_start, p_end + 1) %}
+    {% if p == page %}
+    <span class="current" aria-current="page">{{ p }}</span>
+    {% else %}
+    <a href="/browse?{{ 'q=' + q + '&' if q }}page={{ p }}">{{ p }}</a>
+    {% endif %}
+  {% endfor %}
+
+  {% if p_end < total_pages %}
+  {% if p_end < total_pages - 1 %}<span>…</span>{% endif %}
+  <a href="/browse?{{ 'q=' + q + '&' if q }}page={{ total_pages }}">{{ total_pages }}</a>
+  {% endif %}
+
+  {# Next #}
+  {% if page < total_pages %}
+  <a href="/browse?{{ 'q=' + q + '&' if q }}page={{ page + 1 }}" aria-label="siguiente">&rsaquo;</a>
+  {% else %}
+  <span class="disabled">&rsaquo;</span>
+  {% endif %}
+</nav>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+  <big>📭</big>
+  {% if q %}
+    No se encontraron recursos con ese título.
+  {% else %}
+    No hay recursos indexados aún.
+  {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

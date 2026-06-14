@@ -185,6 +185,7 @@ def _procesar_hash(
 		titulo = info.get("title") or ""
 		uri = descarga.get("uri") or ""
 		fuente = descarga.get("fuente") or ""
+		duracion = descarga.get("duracion") or None
 
 		# --- Vectores ---
 		meta_vec = ju.cargar_archivo(vectores_meta_path)
@@ -284,7 +285,7 @@ def _procesar_hash(
 
 		# --- SQLite ---
 		iu.crear_tablas()
-		iu.escribir_recurso(hash_id, titulo, uri, fuente, tiempos_json=tiempos_json, thumbnail=thumbnail)
+		iu.escribir_recurso(hash_id, titulo, uri, fuente, duracion=duracion, tiempos_json=tiempos_json, thumbnail=thumbnail)
 		with medir("escritura_sqlite"):
 			iu.escribir_chunks(chunk_filas)
 
