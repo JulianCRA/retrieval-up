@@ -7,8 +7,14 @@ recursos
     titulo        TEXT
     uri           TEXT
     fuente        TEXT
+    duracion      REAL  – duration in seconds (nullable)
+    tags          TEXT  – JSON array of tag strings, e.g. '["science","math"]' (nullable)
     tiempos_json  TEXT  – JSON dict of pipeline timing info (per-resource)
     thumbnail     BLOB  – raw bytes of the thumbnail image (nullable)
+
+Filtering by tag (SQLite json_each):
+    SELECT * FROM recursos
+    WHERE EXISTS (SELECT 1 FROM json_each(recursos.tags) WHERE value = 'science')
 
 chunks
     id            TEXT  PK  – "{hash}:{chunk_idx}"
@@ -17,6 +23,7 @@ chunks
     texto         TEXT
     inicio        REAL
     fin           REAL
+    duracion      REAL  – fin - inicio (seconds)
     segmentos_json TEXT  – JSON array of {inicio, fin, texto}
 """
 
@@ -35,7 +42,7 @@ def _conectar() -> sqlite3.Connection:
 
 
 def crear_tablas() -> None:
-    """Crea las tablas si no existen."""
+    """Crea las tablas si no existen y migra columnas nuevas."""
     conn = _conectar()
     try:
         conn.executescript("""
@@ -44,6 +51,8 @@ def crear_tablas() -> None:
                 titulo       TEXT,
                 uri          TEXT,
                 fuente       TEXT,
+                duracion     REAL,
+                tags         TEXT,
                 tiempos_json TEXT,
                 thumbnail    BLOB
             );
@@ -55,9 +64,23 @@ def crear_tablas() -> None:
                 texto          TEXT,
                 inicio         REAL,
                 fin            REAL,
+                duracion       REAL,
                 segmentos_json TEXT
             );
         """)
+        conn.commit()
+
+        # Migrate: add new columns to pre-existing databases (ALTER TABLE ADD
+        # COLUMN IF NOT EXISTS is not supported in SQLite, so we ignore the
+        # error if the column already exists).
+        existing_r = {row[1] for row in conn.execute("PRAGMA table_info(recursos)")}
+        for col, typedef in [("duracion", "REAL"), ("tags", "TEXT")]:
+            if col not in existing_r:
+                conn.execute(f"ALTER TABLE recursos ADD COLUMN {col} {typedef}")
+
+        existing_c = {row[1] for row in conn.execute("PRAGMA table_info(chunks)")}
+        if "duracion" not in existing_c:
+            conn.execute("ALTER TABLE chunks ADD COLUMN duracion REAL")
         conn.commit()
     finally:
         conn.close()
@@ -68,6 +91,8 @@ def escribir_recurso(
     titulo: str,
     uri: str,
     fuente: str,
+    duracion: float | None = None,
+    tags: str | None = None,
     tiempos_json: str = "{}",
     thumbnail: bytes | None = None,
 ) -> None:
@@ -75,10 +100,10 @@ def escribir_recurso(
     try:
         conn.execute(
             """
-            INSERT OR REPLACE INTO recursos (hash, titulo, uri, fuente, tiempos_json, thumbnail)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO recursos (hash, titulo, uri, fuente, duracion, tags, tiempos_json, thumbnail)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (hash_id, titulo, uri, fuente, tiempos_json, thumbnail),
+            (hash_id, titulo, uri, fuente, duracion, tags, tiempos_json, thumbnail),
         )
         conn.commit()
     finally:
@@ -94,6 +119,7 @@ def escribir_chunks(filas: list[dict]) -> None:
             fila["texto"],
             fila["inicio"],
             fila["fin"],
+            fila["fin"] - fila["inicio"] if fila.get("fin") is not None and fila.get("inicio") is not None else None,
             fila.get("segmentos_json", "[]"),
         )
         for fila in filas
@@ -103,8 +129,8 @@ def escribir_chunks(filas: list[dict]) -> None:
         conn.executemany(
             """
             INSERT OR REPLACE INTO chunks
-                (id, hash, chunk_idx, texto, inicio, fin, segmentos_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, hash, chunk_idx, texto, inicio, fin, duracion, segmentos_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
