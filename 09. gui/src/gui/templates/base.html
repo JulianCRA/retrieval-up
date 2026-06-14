@@ -35,7 +35,8 @@
 <body>
   <nav class="top-nav">
     <a class="brand" href="/">retrieval-up</a>
-    <a href="/browse" {% if request.path.startswith('/browse') %}class="active"{% endif %}>Recursos</a>
+    <a href="/browse"   {% if request.path.startswith('/browse')   %}class="active"{% endif %}>Recursos</a>
+    <a href="/pipeline" {% if request.path.startswith('/pipeline') %}class="active"{% endif %}>Pipeline</a>
   </nav>
 
   <main>

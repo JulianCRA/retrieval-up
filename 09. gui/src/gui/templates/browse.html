@@ -183,7 +183,7 @@
       <div class="card-meta">
         {% if r.fuente %}<span>{{ r.fuente }}</span>{% endif %}
         {% if r.duracion %}
-        <span title="duración">⏱ {{ r.duracion | hhmmss }}</span>
+        <span title="duración">⏱ {{ (r.duracion // 60) | int }}m {{ (r.duracion % 60) | int }}s</span>
         {% endif %}
         {% if r.num_chunks %}
         <span title="fragmentos">✦ {{ r.num_chunks }} chunk{% if r.num_chunks != 1 %}s{% endif %}</span>
