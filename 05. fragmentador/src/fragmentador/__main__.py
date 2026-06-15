@@ -187,8 +187,18 @@ def _procesar_hash(
 
 		transcripciones = data.get("transcripciones")
 		if not transcripciones:
-			print(f"[ERROR] No se encontraron transcripciones en '{correcciones_path}'.")
-			sys.exit(1)
+			print(f"[AVISO] No hay transcripciones en '{correcciones_path}' (audio sin voz detectada). Guardando fragmentos vacíos.")
+			fragmentos_path = folder / "fragmentos.json"
+			resultado_vacio = {
+				"estrategia": estrategia,
+				"num_fragmentos": 0,
+				"fragmentos": [],
+				"tiempos": crono.resumen(),
+			}
+			if ju.guardar_archivo(fragmentos_path, resultado_vacio):
+				ju.guardar_nodo(folder / "info.json", "status", 5)
+				ju.guardar_registro("status", 5, ruta=(hash_id,))
+			return
 
 		print(f"[OK] Correcciones cargadas desde '{correcciones_path}' (hash={hash_id})")
 		print(f"[INFO] Modelo corrector: {data.get('modelo_corrector', 'desconocido')}")

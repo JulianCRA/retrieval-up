@@ -174,8 +174,8 @@ def _procesar_hash(
 
 		fragmentos = data.get("fragmentos")
 		if not fragmentos:
-			print(f"[ERROR] No hay fragmentos en '{fragmentos_path}'.")
-			sys.exit(1)
+			print(f"[AVISO] No hay fragmentos en '{fragmentos_path}' (audio sin voz detectada). Saltando indexación.")
+			return
 
 		print(f"[OK] Fragmentos cargados: {len(fragmentos)} (hash={hash_id})")
 
