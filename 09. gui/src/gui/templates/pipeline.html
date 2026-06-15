@@ -452,7 +452,7 @@ cohere — Cohere ASR, alta calidad, requiere GPU.">?</span>
         <div class="field-row" id="asr_batch_size_row" style="display:none">
           <label class="field-label" for="asr_batch_size">
             Batch size
-            <span class="tip" data-tip="Segmentos por lote para Cohere ASR. Déjalo vacío para calcularlo automáticamente según la VRAM disponible.">?</span>
+            <span class="tip" data-tip="Segmentos por lote para Cohere ASR. Déjalo vacío para calcularlo automáticamente según la VRAM disponible. --CRASHES IF TOO HIGH--">?</span>
           </label>
           <input type="number" id="asr_batch_size" name="asr_batch_size"
                  min="1" max="64" step="1" placeholder="auto">
@@ -686,22 +686,23 @@ milvus — Milvus remoto; requiere especificar URI en 'Ruta/URI'.">?</span>
         <thead>
           <tr>
             <th>Módulo</th>
-            <th>total</th>
             <th class="col-descarga">descarga</th>
-            <th>carga de modelos</th>
-            <th>vel. proceso</th>
+            <th>carga</th>
+            <th>total</th>
+            <th>rt total</th>
             <th class="col-div"></th>
-            <th>inferencia solo</th>
-            <th>vel. inferencia</th>
+            <th>sin carga</th>
+            <th>rt sin carga</th>
           </tr>
         </thead>
         <tbody id="timing-tbody"></tbody>
         <tfoot>
           <tr>
-            <td colspan="8">vel. proceso = duración del audio ÷ tiempo del módulo, solo para módulos que procesan audio (procesador, transcriptor). 3× RT = procesa 3s de audio por cada segundo real. descarga = pesos de HuggingFace. — = sin datos / no aplica.</td>
+            <td colspan="8">rt = duración del audio ÷ tiempo del módulo. 3× RT = procesa 3s de audio por cada segundo real. descarga = pesos de HuggingFace. carga = carga de pesos en memoria. sin carga = total − carga. — = sin datos / no aplica.</td>
           </tr>
         </tfoot>
       </table>
+      <p id="timing-summary" style="font-size:0.82rem;margin-top:0.6rem;color:var(--pico-muted-color)"></p>
     </div>
 
   </section>
@@ -871,7 +872,6 @@ function renderTimingTable() {
   let hasRow = false;
   for (const { key, label } of ROW_DEFS) {
     const t = stepTimings[key];
-    const showRT = ROW_DEFS.find(r => r.key === key)?.showRT ?? false;
     if (!t || !t.total) continue;
     hasRow = true;
     const total   = t.total;
@@ -882,13 +882,13 @@ function renderTimingTable() {
     const tr = document.createElement("tr");
     tr.innerHTML =
       `<td>${label}</td>` +
-      `<td>${_fmt(total)}</td>` +
       `<td class="col-descarga">${descarga > 0 ? _fmt(descarga) : na}</td>` +
       `<td>${carga   > 0 ? _fmt(carga)    : na}</td>` +
-      `<td>${showRT ? _fmtRatio(contentDurationSec, total) : na}</td>` +
+      `<td>${_fmt(total)}</td>` +
+      `<td>${_fmtRatio(contentDurationSec, total)}</td>` +
       `<td class="col-div"></td>` +
       `<td>${inf     > 0 ? _fmt(inf)      : na}</td>` +
-      `<td>${showRT ? _fmtRatio(contentDurationSec, inf)   : na}</td>`;
+      `<td>${_fmtRatio(contentDurationSec, inf)}</td>`;
     tbody.appendChild(tr);
   }
   if (!hasRow) return;
@@ -907,17 +907,18 @@ function renderTimingTable() {
   trTotal.className = "timing-total";
   trTotal.innerHTML =
     `<td>TOTAL</td>` +
-    `<td>${_fmt(fTotal)}</td>` +
     `<td class="col-descarga">${fDescarga > 0 ? _fmt(fDescarga) : '<span class="na">—</span>'}</td>` +
     `<td>${fCarga    > 0 ? _fmt(fCarga)    : '<span class="na">—</span>'}</td>` +
-    `<td><span class="na">—</span></td>` +
+    `<td>${_fmt(fTotal)}</td>` +
+    `<td>${_fmtRatio(contentDurationSec, fTotal)}</td>` +
     `<td class="col-div"></td>` +
     `<td>${fInf      > 0 ? _fmt(fInf)      : '<span class="na">—</span>'}</td>` +
-    `<td><span class="na">—</span></td>`;
+    `<td>${_fmtRatio(contentDurationSec, fInf)}</td>`;
   tbody.appendChild(trTotal);
 
-  // content duration summary
+  // content duration + summary line
   const timingHead = timingSection.querySelector("h4");
+  const timingSummary = document.getElementById("timing-summary");
   if (contentDurationSec > 0) {
     const h = Math.floor(contentDurationSec / 3600);
     const m = Math.floor((contentDurationSec % 3600) / 60);
@@ -927,8 +928,17 @@ function renderTimingTable() {
     if (m || h) parts.push(m + "m");
     parts.push(s + "s");
     timingHead.textContent = `Tiempos por módulo — ${parts.join(" ")} de contenido`;
+    const ph = Math.floor(fTotal / 3600);
+    const pm = Math.floor((fTotal % 3600) / 60);
+    const ps = Math.floor(fTotal % 60);
+    const pHMS = `${ph}:${String(pm).padStart(2,"0")}:${String(ps).padStart(2,"0")}`;
+    const rtTotal    = fTotal > 0 ? (contentDurationSec / fTotal).toFixed(2) : "—";
+    const rtSinCarga = fInf   > 0 ? (contentDurationSec / fInf ).toFixed(2) : "—";
+    if (timingSummary) timingSummary.textContent =
+      `Se procesaron ${parts.join(" ")} de audio en ${pHMS}, para un factor de ${rtTotal}× RT (${rtSinCarga}× RT sin cargas de modelo).`;
   } else {
     timingHead.textContent = "Tiempos por módulo";
+    if (timingSummary) timingSummary.textContent = "";
   }
   timingSection.hidden = false;
 }

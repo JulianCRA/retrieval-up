@@ -166,6 +166,12 @@ def _procesar_hash(
 
 		embeddings = vectorizar_textos(model, textos, batch_size, normalizar, tarea=spec.tarea_passage)
 
+		nan_mask = ~np.isfinite(embeddings).all(axis=1)
+		if nan_mask.any():
+			n_bad = int(nan_mask.sum())
+			print(f"[ADVERTENCIA] {n_bad} embedding(s) con NaN/Inf detectados en '{embedder_id}'. Reemplazando con ceros.")
+			embeddings[nan_mask] = 0.0
+
 		dim = int(embeddings.shape[1])
 		if dim != spec.dim:
 			print(f"[ADVERTENCIA] Dim real ({dim}) != dim del registro ({spec.dim}).")

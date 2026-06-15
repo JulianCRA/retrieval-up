@@ -99,6 +99,10 @@ def _snapshot_hashes() -> set[str]:
 
 def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
     """Background thread: runs each pipeline stage and emits SSE-ready dicts."""
+    import pathlib
+    _log_path = pathlib.Path(__file__).resolve().parents[3] / "pipeline_gui.log"
+    _log_fh = open(_log_path, "w", encoding="utf-8", buffering=1)
+    _log_fh.write(f"uris: {uris}\nparams: {params}\n\n")
 
     def emit(**kwargs: object) -> None:
         q.put(kwargs)
@@ -110,6 +114,7 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
 
     def run_step(step: str, cmd: list[str]) -> int:
         emit(type="step_start", step=step)
+        _log_fh.write(f"\n=== {step} ===\ncmd: {' '.join(cmd)}\n\n")
         t0 = time.perf_counter()
         try:
             env = {**os.environ, "PYTHONUNBUFFERED": "1"}
@@ -129,8 +134,10 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
             return 127
         for line in proc.stdout:
             emit_log(step, line)
+            _log_fh.write(line)
         proc.wait()
         elapsed = time.perf_counter() - t0
+        _log_fh.write(f"\n--- rc={proc.returncode} elapsed={elapsed:.2f}s ---\n")
         emit(type="step_done", step=step, rc=proc.returncode, elapsed=round(elapsed, 2))
         return proc.returncode
 
@@ -236,6 +243,7 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
                 os.unlink(tmp_path)
             except OSError:
                 pass
+        _log_fh.close()
         q.put(None)  # sentinel → SSE generator exits
 
 

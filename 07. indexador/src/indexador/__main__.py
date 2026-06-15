@@ -244,6 +244,12 @@ def _procesar_hash(
 			sys.exit(1)
 		embeddings = embeddings.astype(np.float32, copy=False)
 
+		nan_mask = ~np.isfinite(embeddings).all(axis=1)
+		if nan_mask.any():
+			n_bad = int(nan_mask.sum())
+			print(f"[ADVERTENCIA] {n_bad} embedding(s) con NaN/Inf en '{nombre_tabla}'. Reemplazando con ceros.")
+			embeddings[nan_mask] = 0.0
+
 		# --- BM25: tokenizar ---
 		tokens_por_fragmento = _tokenizar_fragmentos(fragmentos)
 

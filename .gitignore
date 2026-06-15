@@ -22,4 +22,6 @@ notas.md
 reconstruir.py
 entrypoint.py
 instalar.py
-ocntinuar.py
+continuar.py
+expunge.py
+*.log
