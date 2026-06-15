@@ -109,7 +109,8 @@ def _fusionar_pequenos(
 		if tokens[i] >= min_tokens or len(resultado) == 1:
 			i += 1
 			continue
-		if i > 0 and tokens[i - 1] + tokens[i] <= chunk_max:
+		# Preferred: merge with a neighbor that is also below min_tokens (avoids cascade).
+		if i > 0 and tokens[i - 1] < min_tokens and tokens[i - 1] + tokens[i] <= chunk_max:
 			resultado[i - 1].extend(resultado[i])
 			tokens[i - 1] += tokens[i]
 			resultado.pop(i)
@@ -120,6 +121,13 @@ def _fusionar_pequenos(
 			tokens[i] += tokens[i + 1]
 			resultado.pop(i + 1)
 			tokens.pop(i + 1)
+			continue
+		# Last resort: absorb into an already-adequate left neighbor if it fits.
+		if i > 0 and tokens[i - 1] + tokens[i] <= chunk_max:
+			resultado[i - 1].extend(resultado[i])
+			tokens[i - 1] += tokens[i]
+			resultado.pop(i)
+			tokens.pop(i)
 			continue
 		i += 1
 
