@@ -13,6 +13,8 @@ dependencies = [
 	"tantivy>=0.22",
 	"sentence-transformers>=4.0,<6.0",
 	"numpy>=1.24",
+	"spacy>=3.0",
+	"es-core-news-lg @ https://github.com/explosion/spacy-models/releases/download/es_core_news_lg-3.8.0/es_core_news_lg-3.8.0-py3-none-any.whl",
 ]
 
 [project.scripts]

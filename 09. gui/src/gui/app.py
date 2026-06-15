@@ -112,6 +112,7 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
         emit(type="step_start", step=step)
         t0 = time.perf_counter()
         try:
+            env = {**os.environ, "PYTHONUNBUFFERED": "1"}
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -120,6 +121,7 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                env=env,
             )
         except FileNotFoundError:
             emit_log(step, f"[ERROR] Comando no encontrado: {cmd[0]}")

@@ -289,6 +289,63 @@
   .log-info      { color: #79c0ff; }
   .log-dim       { color: #6e7681; }
 
+  /* ── Timing table ── */
+  #timing-section {
+    padding: 0.75rem 1rem 1rem;
+    border-top: 1px solid var(--pico-muted-border-color);
+  }
+  #timing-section h4 {
+    margin: 0 0 0.55rem;
+    font-size: 0.78rem;
+    color: var(--pico-muted-color);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  #timing-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.77rem;
+    font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  }
+  #timing-table th, #timing-table td {
+    padding: 0.25rem 0.55rem;
+    text-align: right;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--pico-muted-border-color);
+  }
+  #timing-table th:first-child, #timing-table td:first-child {
+    text-align: left;
+    font-family: inherit;
+  }
+  #timing-table thead th {
+    color: var(--pico-muted-color);
+    font-weight: 600;
+    font-size: 0.71rem;
+    border-bottom: 2px solid var(--pico-muted-border-color);
+  }
+  #timing-table .col-div {
+    width: 2px;
+    padding: 0;
+    background: var(--pico-muted-border-color);
+    border: none;
+  }
+  #timing-table th.col-descarga, #timing-table td.col-descarga {
+    width: 5.5rem;
+    max-width: 5.5rem;
+  }
+  #timing-table .na { color: var(--pico-muted-color); }
+  #timing-table tr.timing-total td {
+    border-top: 2px solid var(--pico-muted-border-color);
+    font-weight: 700;
+  }
+  #timing-table tfoot td {
+    border-top: 1px solid var(--pico-muted-border-color);
+    border-bottom: none;
+    color: var(--pico-muted-color);
+    font-size: 0.71rem;
+    padding-top: 0.35rem;
+  }
+
   /* ── Hashes badge ── */
   #hashes-section {
     padding: 0.65rem 1rem;
@@ -623,6 +680,30 @@ milvus — Milvus remoto; requiere especificar URI en 'Ruta/URI'.">?</span>
       <strong>Hashes procesados:</strong>
     </div>
 
+    <div id="timing-section" hidden>
+      <h4>Tiempos por módulo</h4>
+      <table id="timing-table">
+        <thead>
+          <tr>
+            <th>Módulo</th>
+            <th>total</th>
+            <th class="col-descarga">descarga</th>
+            <th>carga de modelos</th>
+            <th>vel. proceso</th>
+            <th class="col-div"></th>
+            <th>inferencia solo</th>
+            <th>vel. inferencia</th>
+          </tr>
+        </thead>
+        <tbody id="timing-tbody"></tbody>
+        <tfoot>
+          <tr>
+            <td colspan="8">vel. proceso = duración del audio ÷ tiempo del módulo, solo para módulos que procesan audio (procesador, transcriptor). 3× RT = procesa 3s de audio por cada segundo real. descarga = pesos de HuggingFace. — = sin datos / no aplica.</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
   </section>
 
 </div>{# end .pipeline-layout #}
@@ -716,11 +797,141 @@ const stepsTimeline   = document.getElementById("steps-timeline");
 const logOutput       = document.getElementById("log-output");
 const logStatus       = document.getElementById("log-status");
 const hashSection     = document.getElementById("hashes-section");
+const timingSection   = document.getElementById("timing-section");
 const runBtn          = document.getElementById("run-btn");
 
 let autoScroll = true;
 let elapsedTimer = null;
 let runStart = 0;
+
+/* ── Per-run timing accumulators ─────────────────────────────────── */
+let stepTimings = {};       // { groupKey: { total, carga_modelo, descarga } }
+let contentDurationSec = 0; // sum of audio durations from procesador
+
+const RE_TIEMPO  = /^\s*\[TIEMPO\]\s+(.+?):\s+([\d.]+)s\s*$/i;
+const RE_DURACION = /Duracion:\s+([\d.]+)\s+segundos/i;
+
+function _stepGroup(step) { return step.replace(/\[.*?\]$/, ""); }
+
+function _parseTqdmElapsed(timing) {
+  if (!timing) return null;
+  const part = timing.split("<")[0].trim();
+  const segs = part.split(":").map(Number);
+  if (segs.some(isNaN)) return null;
+  if (segs.length === 2) return segs[0] * 60 + segs[1];
+  if (segs.length === 3) return segs[0] * 3600 + segs[1] * 60 + segs[2];
+  return null;
+}
+
+function _accumulateTiming(step, text) {
+  const g = _stepGroup(step);
+  if (!stepTimings[g]) stepTimings[g] = { total: 0, carga_modelo: 0, descarga: 0 };
+  const mT = text.match(RE_TIEMPO);
+  if (mT) {
+    const lbl = mT[1].trim().toLowerCase();
+    const val = parseFloat(mT[2]);
+    if (lbl.startsWith("carga_modelo") || lbl === "carga_spacy")
+      stepTimings[g].carga_modelo += val;
+  }
+  if (g === "procesar") {
+    const mD = text.match(RE_DURACION);
+    if (mD) contentDurationSec += parseFloat(mD[1]);
+  }
+}
+
+function _accumulateDownload(step, tqdmLabel, pct, timing) {
+  if (pct < 99.9) return;
+  if (!/^downloading/i.test(tqdmLabel)) return;
+  const secs = _parseTqdmElapsed(timing);
+  if (secs === null) return;
+  const g = _stepGroup(step);
+  if (!stepTimings[g]) stepTimings[g] = { total: 0, carga_modelo: 0, descarga: 0 };
+  stepTimings[g].descarga += secs;
+}
+
+const ROW_DEFS = [
+  { key: "descargar", label: "descargador",  showRT: false },
+  { key: "procesar",  label: "procesador",   showRT: true  },
+  { key: "asr",       label: "transcriptor", showRT: true  },
+  { key: "corr",      label: "corrector",    showRT: false },
+  { key: "frag",      label: "fragmentador", showRT: false },
+  { key: "vect",      label: "vectorizador", showRT: false },
+  { key: "indexar",   label: "indexador",    showRT: false },
+];
+
+function _fmt(sec) { return sec.toFixed(2) + "s"; }
+function _fmtRatio(contentSec, timeSec) {
+  if (contentSec <= 0 || timeSec <= 0) return '<span class="na">—</span>';
+  return (contentSec / timeSec).toFixed(2) + "× RT";
+}
+
+function renderTimingTable() {
+  const tbody = document.getElementById("timing-tbody");
+  tbody.innerHTML = "";
+  let hasRow = false;
+  for (const { key, label } of ROW_DEFS) {
+    const t = stepTimings[key];
+    const showRT = ROW_DEFS.find(r => r.key === key)?.showRT ?? false;
+    if (!t || !t.total) continue;
+    hasRow = true;
+    const total   = t.total;
+    const carga   = t.carga_modelo || 0;
+    const descarga = t.descarga || 0;
+    const inf     = Math.max(0, total - carga);
+    const na = '<span class="na">—</span>';
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${label}</td>` +
+      `<td>${_fmt(total)}</td>` +
+      `<td class="col-descarga">${descarga > 0 ? _fmt(descarga) : na}</td>` +
+      `<td>${carga   > 0 ? _fmt(carga)    : na}</td>` +
+      `<td>${showRT ? _fmtRatio(contentDurationSec, total) : na}</td>` +
+      `<td class="col-div"></td>` +
+      `<td>${inf     > 0 ? _fmt(inf)      : na}</td>` +
+      `<td>${showRT ? _fmtRatio(contentDurationSec, inf)   : na}</td>`;
+    tbody.appendChild(tr);
+  }
+  if (!hasRow) return;
+
+  // TOTAL row
+  let fTotal = 0, fCarga = 0, fDescarga = 0;
+  for (const { key } of ROW_DEFS) {
+    const t = stepTimings[key];
+    if (!t || !t.total) continue;
+    fTotal    += t.total;
+    fCarga    += t.carga_modelo || 0;
+    fDescarga += t.descarga    || 0;
+  }
+  const fInf = Math.max(0, fTotal - fCarga);
+  const trTotal = document.createElement("tr");
+  trTotal.className = "timing-total";
+  trTotal.innerHTML =
+    `<td>TOTAL</td>` +
+    `<td>${_fmt(fTotal)}</td>` +
+    `<td class="col-descarga">${fDescarga > 0 ? _fmt(fDescarga) : '<span class="na">—</span>'}</td>` +
+    `<td>${fCarga    > 0 ? _fmt(fCarga)    : '<span class="na">—</span>'}</td>` +
+    `<td><span class="na">—</span></td>` +
+    `<td class="col-div"></td>` +
+    `<td>${fInf      > 0 ? _fmt(fInf)      : '<span class="na">—</span>'}</td>` +
+    `<td><span class="na">—</span></td>`;
+  tbody.appendChild(trTotal);
+
+  // content duration summary
+  const timingHead = timingSection.querySelector("h4");
+  if (contentDurationSec > 0) {
+    const h = Math.floor(contentDurationSec / 3600);
+    const m = Math.floor((contentDurationSec % 3600) / 60);
+    const s = Math.floor(contentDurationSec % 60);
+    const parts = [];
+    if (h) parts.push(h + "h");
+    if (m || h) parts.push(m + "m");
+    parts.push(s + "s");
+    timingHead.textContent = `Tiempos por módulo — ${parts.join(" ")} de contenido`;
+  } else {
+    timingHead.textContent = "Tiempos por módulo";
+  }
+  timingSection.hidden = false;
+}
 let _programmaticScroll = false;
 
 const btnScrollLock = document.getElementById("btn-scroll-lock");
@@ -861,6 +1072,10 @@ function handleEvent(msg) {
       break;
 
     case "run_started":
+      stepTimings = {};
+      contentDurationSec = 0;
+      timingSection.hidden = true;
+      document.getElementById("timing-tbody").innerHTML = "";
       overallBar.max = msg.total_steps;
       overallBar.value = 0;
       overallLabel.textContent = `0 / ${msg.total_steps} pasos`;
@@ -901,17 +1116,25 @@ function handleEvent(msg) {
     case "log":
       if (msg.text) {
         const t = msg.text.trimEnd();
+        _accumulateTiming(msg.step, t);
         if (!tryProgressLine(msg.step, t)) {
           let cls = "";
           if (/\[error\]|\[err\]/i.test(t))       cls = "log-error";
           else if (/\[warn\]|\[aviso\]/i.test(t)) cls = "log-warn";
           else if (/\[ok\]|\[info\]/i.test(t))    cls = "log-ok";
           appendLog("  " + t, cls);
+        } else {
+          // also check tqdm for download timing
+          const mT = t.match(RE_TQDM);
+          if (mT) _accumulateDownload(msg.step, mT[1], parseFloat(mT[2]), mT[5]);
         }
       }
       break;
 
-    case "step_done":
+    case "step_done": {
+      const g = _stepGroup(msg.step);
+      if (!stepTimings[g]) stepTimings[g] = { total: 0, carga_modelo: 0, descarga: 0 };
+      stepTimings[g].total += msg.elapsed;
       clearInterval(stepTimers[msg.step]);
       setChipStatus(msg.step, msg.rc === 0 ? "done" : "error");
       if (stepChips[msg.step])
@@ -923,6 +1146,7 @@ function handleEvent(msg) {
       else
         appendLog(`  ✗ ${msg.step} falló (código ${msg.rc})`, "log-error");
       break;
+    }
 
     case "pipeline_done":
       clearInterval(elapsedTimer);
@@ -930,6 +1154,7 @@ function handleEvent(msg) {
       overallBar.value = overallBar.max;
       overallLabel.textContent = `${overallBar.max} / ${overallBar.max} pasos ✓`;
       appendLog(`\n✓ Pipeline completado — ${msg.hashes.length} recurso(s) indexado(s)`, "log-ok");
+      renderTimingTable();
       runBtn.disabled = false;
       runBtn.textContent = "▶ Ejecutar pipeline";
       break;

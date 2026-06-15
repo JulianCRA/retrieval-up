@@ -10,6 +10,7 @@ from compartido.utils import cronometrar, crear_perfil_hardware, cronometro_acti
 import soundfile as sf
 import noisereduce as nr
 import numpy as np
+from tqdm import tqdm
 
 from procesador.vad_energia import vad_energia
 from procesador.vad_silero import vad_silero
@@ -88,8 +89,7 @@ def procesar(hashes: list[str], metodo=None):
     fallos: list[str] = []
     total = len(hashes)
     try:
-        for i, hash in enumerate(hashes, 1):
-            print(f"\n[PIPELINE] Procesando audio {i} de {total}")
+        for hash in tqdm(hashes, desc="Procesando", unit="hash"):
             try:
                 procesar_hash(hash, metodo, perfil=perfil, executor=executor)
             except BrokenProcessPool as e:

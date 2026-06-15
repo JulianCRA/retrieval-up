@@ -74,7 +74,18 @@ def procesar_hash(hash_id: str, backend: str = "silero", perfil=None):
 
 		segmentos = data.get("transcripciones")
 		if not segmentos:
-			raise RuntimeError(f"No se encontraron transcripciones en '{transcripciones_path}'.")
+			print(f"[AVISO] No hay transcripciones en '{transcripciones_path}' (audio sin voz detectada). Guardando correcciones vacías.")
+			resultado = {
+				"modelo_corrector": "ninguno",
+				"modelo_asr": data.get("modelo", ""),
+				"tiempos": crono.resumen(),
+				"texto": "",
+				"transcripciones": [],
+			}
+			if ju.guardar_archivo(correcciones_path, resultado):
+				ju.guardar_nodo(folder / "info.json", "status", 4)
+				ju.guardar_registro("status", 4, ruta=(hash_id,))
+			return
 
 		modelo_asr = data.get("modelo", "")
 		texto = data.get("texto") or _texto_desde_segmentos(segmentos)
