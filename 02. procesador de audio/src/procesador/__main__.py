@@ -73,6 +73,28 @@ Métodos de detección de voz (VAD):
 
     procesar(args.hashes, args.metodo)
 
+def _probe():
+    return True
+
+def _crear_pool(n_workers):
+    from concurrent.futures import ProcessPoolExecutor
+    from procesador.vad_silero import _init_worker
+    while n_workers >= 1:
+        try:
+            pool = ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker)
+            pool.submit(_probe).result(timeout=30)
+            return pool
+        except Exception as e:
+            print(f"[WARNING] No se pudo crear pool con {n_workers} worker(s): {e}")
+            try:
+                pool.shutdown(wait=False)
+            except Exception:
+                pass
+            if n_workers == 1:
+                raise RuntimeError("No se pudo crear el pool de workers incluso con 1 worker.") from e
+            n_workers = max(1, n_workers // 2)
+    raise RuntimeError("No se pudo crear el pool de workers.")
+
 def procesar(hashes: list[str], metodo=None):
     from concurrent.futures import ProcessPoolExecutor, BrokenExecutor as BrokenProcessPool
     from procesador.vad_silero import _init_worker
@@ -82,8 +104,9 @@ def procesar(hashes: list[str], metodo=None):
     n_workers = None
     if metodo == "silero":
         import psutil
-        n_workers = psutil.cpu_count(logical=False)
-        executor = ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker)
+        n_workers = max(1, psutil.cpu_count(logical=False) or 1)
+        executor = _crear_pool(n_workers)
+        n_workers = executor._max_workers  # may have been reduced
         print(f"[INFO] Pool compartido de {n_workers} workers Silero creado para {len(hashes)} hash(es).")
 
     fallos: list[str] = []
@@ -100,8 +123,10 @@ def procesar(hashes: list[str], metodo=None):
                         executor.shutdown(wait=False)
                     except Exception:
                         pass
-                    executor = ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker)
-                    print(f"[INFO] Pool recreado tras fallo de worker.")
+                    n_workers = max(1, n_workers // 2)
+                    executor = _crear_pool(n_workers)
+                    n_workers = executor._max_workers
+                    print(f"[INFO] Pool recreado con {n_workers} worker(s) tras fallo.")
             except Exception as e:
                 print(f"[ERROR] Hash '{hash}': {e}")
                 fallos.append(hash)
@@ -119,8 +144,8 @@ def procesar_hash(hash, metodo=None, perfil=None, executor=None):
     folder = DESCARGAS_DIR / hash
     ruta_info = folder / "info.json"
     info = ju.cargar_archivo(ruta_info)
-    if info is None:
-        raise RuntimeError(f"No se encontró información para el hash '{hash}'.")
+    if not info or "descarga" not in info:
+        raise RuntimeError(f"info.json incompleto o ausente para el hash '{hash}' (¿descarga fallida?).")
     procesar_archivo(info["descarga"]["archivo_descargado"], metodo=metodo, folder=folder, perfil=perfil, executor=executor)
 
 def procesar_archivo(ruta, metodo=None, folder=None, perfil=None, executor=None):

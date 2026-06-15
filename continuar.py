@@ -367,13 +367,28 @@ def main() -> int:
             titulo = registros[h].get("title", "")
             print(f"      · {h}  {titulo}")
 
-    # ── Determinar qué etapas son necesarias ─────────────────────────────
+    # ── Elegir nivel de inicio ────────────────────────────────────────────
     if args.desde:
-        # El usuario fuerza un punto de partida: todas las etapas desde ahí
-        idx_desde = ETAPAS_ORDEN.index(args.desde)
+        desde_elegido = args.desde
+    else:
+        _print_seccion("¿Desde qué etapa quieres continuar?")
+        print("  · auto = determinar automáticamente según el status de cada hash")
+        for i, etapa in enumerate(ETAPAS_ORDEN, 1):
+            print(f"  · {i}. {etapa}")
+        opciones_nivel = ["auto"] + ETAPAS_ORDEN
+        resp_nivel = preguntar(
+            "Etapa de inicio",
+            default="auto",
+            opciones=opciones_nivel,
+        )
+        desde_elegido = None if resp_nivel == "auto" else resp_nivel
+
+    # ── Determinar qué etapas son necesarias ─────────────────────────────
+    if desde_elegido:
+        # El usuario fuerza un punto de partida: todas las etapas desde ahí.
+        # Cada etapa filtra por su propio status requerido según el estado actual.
+        idx_desde = ETAPAS_ORDEN.index(desde_elegido)
         etapas_necesarias = ETAPAS_ORDEN[idx_desde:]
-        # Para cada etapa forzada, los hashes elegibles son los que tienen el
-        # status requerido (o mayor) — no retrotraemos a estados anteriores.
         hashes_por_etapa: dict[str, list[str]] = {}
         for etapa in etapas_necesarias:
             req = STATUS_REQUERIDO[etapa]
@@ -424,6 +439,22 @@ def main() -> int:
     if c_frag and c_idx is None:
         c_idx = cfg_indexador()
 
+    # Si solo se necesitan vect/indexar (frag ya fue hecho), pedir el embedder.
+    embedder_solo: str | None = None
+    todos_embedders_solo: bool = False
+    if c_frag is None and (c_vect is not None or c_idx is not None):
+        _print_seccion("Config: embedder objetivo")
+        todos_embedders_solo = preguntar_bool(
+            "Ejecutar para todos los embedders",
+            default=False,
+        )
+        if not todos_embedders_solo:
+            embedder_solo = preguntar(
+                "Embedder objetivo (--embedder)",
+                default="jina-v3",
+                opciones=EMBEDDERS,
+            )
+
     # ── Resumen ───────────────────────────────────────────────────────────
     _print_seccion("Resumen de configuración")
     if c_proc:
@@ -436,6 +467,10 @@ def main() -> int:
     if c_frag:
         e_lbl = "TODOS" if c_frag["todos_embedders"] else c_frag["embedder"]
         print(f"  frag     : estrategia={c_frag['estrategia']} embedder={e_lbl}")
+    if embedder_solo:
+        print(f"  embedder : {embedder_solo}")
+    elif todos_embedders_solo:
+        print(f"  embedder : TODOS")
     if c_vect:
         print(f"  vect     : batch={c_vect['batch_size']} norm={c_vect['normalizar']}")
     if c_idx:
@@ -495,8 +530,11 @@ def main() -> int:
             if h not in hashes_fvi:
                 hashes_fvi.append(h)
 
-    if hashes_fvi and c_frag:
-        embedders_a_procesar = EMBEDDERS if c_frag["todos_embedders"] else [c_frag["embedder"]]
+    if hashes_fvi and (c_frag or c_vect or c_idx):
+        if c_frag:
+            embedders_a_procesar = EMBEDDERS if c_frag["todos_embedders"] else [c_frag["embedder"]]
+        else:
+            embedders_a_procesar = EMBEDDERS if todos_embedders_solo else [embedder_solo]
         tiempos.setdefault("frag", 0.0)
         tiempos.setdefault("vect", 0.0)
         tiempos.setdefault("indexar", 0.0)
