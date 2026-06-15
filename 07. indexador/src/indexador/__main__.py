@@ -283,10 +283,10 @@ def _procesar_hash(
 		thumbnail = _cargar_thumbnail(folder)
 
 		# --- SQLite ---
-		iu.crear_tablas()
+		iu.crear_tablas(nombre_tabla)
 		iu.escribir_recurso(hash_id, titulo, uri, fuente, tiempos_json=tiempos_json, thumbnail=thumbnail)
 		with medir("escritura_sqlite"):
-			iu.escribir_chunks(chunk_filas)
+			iu.escribir_chunks(chunk_filas, nombre_tabla)
 
 		with medir("escritura_db"):
 			backend_mod.escribir_tabla(db, nombre_tabla, lance_filas, dim=dim, reclear=reclear)

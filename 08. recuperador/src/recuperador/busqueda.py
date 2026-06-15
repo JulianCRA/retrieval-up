@@ -88,17 +88,17 @@ def buscar(nombre_embedder, query, modo, top_k=5, device: str = "cpu"):
 	
 	if modo == "bm25":
 		tokens_query = tokenizar_query_bm25(query)
-		resultados = iu.enriquecer(busqueda_sintactica(tabla, tokens_query, top_k))
+		resultados = iu.enriquecer(busqueda_sintactica(tabla, tokens_query, top_k), nombre_embedder)
 		return None, resultados
 	elif modo == "denso":
 		vector_query = vectorizar_query(query, tabla.name, device=device)
-		resultados = iu.enriquecer(busqueda_semantica(tabla, vector_query, top_k))
+		resultados = iu.enriquecer(busqueda_semantica(tabla, vector_query, top_k), nombre_embedder)
 		return resultados, None
 	elif modo in ("rrf", "wrrf", "hibrido"):
 		tokens_query = tokenizar_query_bm25(query)
 		vector_query = vectorizar_query(query, tabla.name, device=device)
-		semantica = iu.enriquecer(busqueda_semantica(tabla, vector_query, top_k))
-		sintactica = iu.enriquecer(busqueda_sintactica(tabla, tokens_query, top_k))
+		semantica = iu.enriquecer(busqueda_semantica(tabla, vector_query, top_k), nombre_embedder)
+		sintactica = iu.enriquecer(busqueda_sintactica(tabla, tokens_query, top_k), nombre_embedder)
 		return semantica, sintactica
         
 	return None, None
