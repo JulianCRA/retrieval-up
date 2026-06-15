@@ -108,8 +108,16 @@ def escribir_recurso(
     try:
         conn.execute(
             """
-            INSERT OR REPLACE INTO recursos (hash, titulo, uri, fuente, duracion, tags, tiempos_json, thumbnail)
+            INSERT INTO recursos (hash, titulo, uri, fuente, duracion, tags, tiempos_json, thumbnail)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(hash) DO UPDATE SET
+                titulo       = excluded.titulo,
+                uri          = excluded.uri,
+                fuente       = excluded.fuente,
+                duracion     = excluded.duracion,
+                tags         = excluded.tags,
+                tiempos_json = excluded.tiempos_json,
+                thumbnail    = excluded.thumbnail
             """,
             (hash_id, titulo, uri, fuente, duracion, tags, tiempos_json, thumbnail),
         )
