@@ -175,6 +175,8 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
 
         # ── 3. asr ────────────────────────────────────────────────────────────
         cmd = ["asr", *hflags, "-m", params["asr_modelo"], *cpu_flag]
+        if params.get("asr_batch_size") and params["asr_modelo"] == "cohere":
+            cmd += ["--batch-size", str(params["asr_batch_size"])]
         if (rc := run_step("asr", cmd)) != 0:
             emit(type="pipeline_error", step="asr", rc=rc); return
 
@@ -321,6 +323,7 @@ def pipeline_submit():
         "forzar_cpu":             bool(data.get("forzar_cpu", False)),
         "vad_metodo":             str(data.get("vad_metodo", "silero")),
         "asr_modelo":             str(data.get("asr_modelo", "whisper:turbo")),
+        "asr_batch_size":         int(data["asr_batch_size"]) if data.get("asr_batch_size") else None,
         "corr_backend":           str(data.get("corr_backend", "silero")),
         "frag_todos":             bool(data.get("frag_todos", False)),
         "frag_embedder":          str(data.get("frag_embedder", "jina-v3")),

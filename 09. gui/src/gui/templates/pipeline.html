@@ -392,6 +392,14 @@ cohere — Cohere ASR, alta calidad, requiere GPU.">?</span>
             <option value="cohere">cohere — alta calidad, GPU</option>
           </select>
         </div>
+        <div class="field-row" id="asr_batch_size_row" style="display:none">
+          <label class="field-label" for="asr_batch_size">
+            Batch size
+            <span class="tip" data-tip="Segmentos por lote para Cohere ASR. Déjalo vacío para calcularlo automáticamente según la VRAM disponible.">?</span>
+          </label>
+          <input type="number" id="asr_batch_size" name="asr_batch_size"
+                 min="1" max="64" step="1" placeholder="auto">
+        </div>
       </div>
     </details>
 
@@ -682,6 +690,8 @@ const fragBoundRow   = document.getElementById("frag_boundary_row");
 const fragEstrategia = document.getElementById("frag_estrategia");
 const fragFixed      = document.getElementById("frag_fixed_fields");
 const fragSemantic   = document.getElementById("frag_semantic_fields");
+const asrModelo      = document.getElementById("asr_modelo");
+const asrBatchRow    = document.getElementById("asr_batch_size_row");
 
 function syncFormVisibility() {
   const todos    = fragTodos.checked;
@@ -690,9 +700,11 @@ function syncFormVisibility() {
   fragBoundRow.style.display    = (todos || !semantic) ? "none" : "";
   fragFixed.style.display       = semantic ? "none" : "";
   fragSemantic.style.display    = semantic ? "" : "none";
+  asrBatchRow.style.display     = asrModelo.value === "cohere" ? "" : "none";
 }
 fragTodos.addEventListener("change", syncFormVisibility);
 fragEstrategia.addEventListener("change", syncFormVisibility);
+asrModelo.addEventListener("change", syncFormVisibility);
 syncFormVisibility();
 
 /* ── Progress panel ───────────────────────────────────────────────── */
@@ -948,6 +960,7 @@ document.getElementById("pipeline-form").addEventListener("submit", async (e) =>
     forzar_cpu:             document.getElementById("forzar_cpu").checked,
     vad_metodo:             document.getElementById("vad_metodo").value,
     asr_modelo:             document.getElementById("asr_modelo").value,
+    asr_batch_size:         document.getElementById("asr_batch_size").value || null,
     corr_backend:           document.getElementById("corr_backend").value,
     frag_todos:             document.getElementById("frag_todos").checked,
     frag_embedder:          document.getElementById("frag_embedder").value,
