@@ -46,6 +46,15 @@ def main():
         help="Forzar uso de CPU aunque haya GPU disponible.",
     )
 
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        dest="batch_size",
+        metavar="N",
+        help="Tamaño de lote para inferencia (solo cohere). Omitir para calcularlo automáticamente.",
+    )
+
     args = parser.parse_args()
 
     if args.info:
@@ -53,9 +62,9 @@ def main():
         sys.exit(0)
     elif args.modelo is None:
         args.modelo = "vosk"
-    procesar(args.hashes, args.modelo, forzar_cpu=args.forzar_cpu)
+    procesar(args.hashes, args.modelo, forzar_cpu=args.forzar_cpu, batch_size=args.batch_size)
 
-def procesar(hashes: list[str], modelo="vosk", forzar_cpu: bool = False):
+def procesar(hashes: list[str], modelo="vosk", forzar_cpu: bool = False, batch_size: int | None = None):
     forzado = {"device": "cpu"} if forzar_cpu else None
     perfil = crear_perfil_hardware(forzado=forzado)
     fallos: list[str] = []
@@ -63,7 +72,7 @@ def procesar(hashes: list[str], modelo="vosk", forzar_cpu: bool = False):
     for i, hash in enumerate(hashes, 1):
         print(f"\n[PIPELINE] Transcribiendo recurso {i} de {total}")
         try:
-            procesar_hash(hash, modelo, perfil=perfil)
+            procesar_hash(hash, modelo, perfil=perfil, batch_size=batch_size)
         except Exception as e:
             print(f"[ERROR] Hash '{hash}': {e}")
             fallos.append(hash)
@@ -71,7 +80,7 @@ def procesar(hashes: list[str], modelo="vosk", forzar_cpu: bool = False):
         print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
         sys.exit(1)
 
-def procesar_hash(hash, modelo="vosk", perfil=None):
+def procesar_hash(hash, modelo="vosk", perfil=None, batch_size: int | None = None):
     folder = DESCARGAS_DIR / hash
     info = ju.cargar_archivo(folder / "info.json")
     if info is None:
@@ -87,9 +96,9 @@ def procesar_hash(hash, modelo="vosk", perfil=None):
 
     transcripciones_path = folder / "transcripciones.json"
 
-    obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo=modelo, perfil=perfil)
+    obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo=modelo, perfil=perfil, batch_size=batch_size)
 
-def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo="vosk", perfil=None):
+def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, modelo="vosk", perfil=None, batch_size: int | None = None):
     print(f"[INFO] Transcribiendo '{audio_path.name}' usando el modelo '{modelo}'...")
     paths = {
         "audio": audio_path,
@@ -107,7 +116,7 @@ def obtener_transcripcion(audio_path, segmentos_path, transcripciones_path, mode
             transcribir_whisper(paths, modelo=variante, perfil=perfil)
         elif modelo == "cohere":
             from .cohere_asr import transcribir_cohere
-            transcribir_cohere(paths, perfil=perfil)
+            transcribir_cohere(paths, perfil=perfil, batch_size=batch_size)
         else:
             raise ValueError(f"Modelo '{modelo}' no soportado.")
 

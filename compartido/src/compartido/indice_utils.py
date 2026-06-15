@@ -16,7 +16,7 @@ Filtering by tag (SQLite json_each):
     SELECT * FROM recursos
     WHERE EXISTS (SELECT 1 FROM json_each(recursos.tags) WHERE value = 'science')
 
-chunks
+chunks_{modelo}  (one table per embedding model)
     id            TEXT  PK  – "{hash}:{chunk_idx}"
     hash          TEXT  FK → recursos.hash
     chunk_idx     INTEGER
@@ -27,6 +27,7 @@ chunks
     segmentos_json TEXT  – JSON array of {inicio, fin, texto}
 """
 
+import re
 import sqlite3
 
 from compartido.rutas import INDICE_DB
@@ -41,11 +42,18 @@ def _conectar() -> sqlite3.Connection:
     return conn
 
 
-def crear_tablas() -> None:
+def _nombre_chunks(tabla: str) -> str:
+    """Devuelve el nombre de la tabla SQLite para los chunks del modelo dado."""
+    safe = re.sub(r"[^a-zA-Z0-9_]", "_", tabla)
+    return f"chunks_{safe}"
+
+
+def crear_tablas(tabla: str) -> None:
     """Crea las tablas si no existen y migra columnas nuevas."""
+    chunks_tbl = _nombre_chunks(tabla)
     conn = _conectar()
     try:
-        conn.executescript("""
+        conn.executescript(f"""
             CREATE TABLE IF NOT EXISTS recursos (
                 hash         TEXT PRIMARY KEY,
                 titulo       TEXT,
@@ -57,7 +65,7 @@ def crear_tablas() -> None:
                 thumbnail    BLOB
             );
 
-            CREATE TABLE IF NOT EXISTS chunks (
+            CREATE TABLE IF NOT EXISTS {chunks_tbl} (
                 id             TEXT    PRIMARY KEY,
                 hash           TEXT    NOT NULL REFERENCES recursos(hash) ON DELETE CASCADE,
                 chunk_idx      INTEGER NOT NULL,
@@ -78,9 +86,9 @@ def crear_tablas() -> None:
             if col not in existing_r:
                 conn.execute(f"ALTER TABLE recursos ADD COLUMN {col} {typedef}")
 
-        existing_c = {row[1] for row in conn.execute("PRAGMA table_info(chunks)")}
+        existing_c = {row[1] for row in conn.execute(f"PRAGMA table_info({chunks_tbl})")}
         if "duracion" not in existing_c:
-            conn.execute("ALTER TABLE chunks ADD COLUMN duracion REAL")
+            conn.execute(f"ALTER TABLE {chunks_tbl} ADD COLUMN duracion REAL")
         conn.commit()
     finally:
         conn.close()
@@ -100,8 +108,16 @@ def escribir_recurso(
     try:
         conn.execute(
             """
-            INSERT OR REPLACE INTO recursos (hash, titulo, uri, fuente, duracion, tags, tiempos_json, thumbnail)
+            INSERT INTO recursos (hash, titulo, uri, fuente, duracion, tags, tiempos_json, thumbnail)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(hash) DO UPDATE SET
+                titulo       = excluded.titulo,
+                uri          = excluded.uri,
+                fuente       = excluded.fuente,
+                duracion     = excluded.duracion,
+                tags         = excluded.tags,
+                tiempos_json = excluded.tiempos_json,
+                thumbnail    = excluded.thumbnail
             """,
             (hash_id, titulo, uri, fuente, duracion, tags, tiempos_json, thumbnail),
         )
@@ -110,7 +126,8 @@ def escribir_recurso(
         conn.close()
 
 
-def escribir_chunks(filas: list[dict]) -> None:
+def escribir_chunks(filas: list[dict], tabla: str) -> None:
+    chunks_tbl = _nombre_chunks(tabla)
     rows = [
         (
             fila["id"],
@@ -127,8 +144,8 @@ def escribir_chunks(filas: list[dict]) -> None:
     conn = _conectar()
     try:
         conn.executemany(
-            """
-            INSERT OR REPLACE INTO chunks
+            f"""
+            INSERT OR REPLACE INTO {chunks_tbl}
                 (id, hash, chunk_idx, texto, inicio, fin, duracion, segmentos_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -139,7 +156,7 @@ def escribir_chunks(filas: list[dict]) -> None:
         conn.close()
 
 
-def enriquecer(filas: list[dict]) -> list[dict]:
+def enriquecer(filas: list[dict], tabla: str) -> list[dict]:
     """Merge chunk + resource metadata into LanceDB result rows (joined by id)."""
     if not filas or not INDICE_DB.exists():
         return filas
@@ -147,6 +164,7 @@ def enriquecer(filas: list[dict]) -> list[dict]:
     if not ids:
         return filas
 
+    chunks_tbl = _nombre_chunks(tabla)
     conn = _conectar()
     try:
         placeholders = ",".join("?" * len(ids))
@@ -154,7 +172,7 @@ def enriquecer(filas: list[dict]) -> list[dict]:
             f"""
             SELECT c.id, c.chunk_idx, c.texto, c.inicio, c.fin, c.segmentos_json,
                    r.titulo, r.uri, r.fuente
-            FROM chunks c
+            FROM {chunks_tbl} c
             JOIN recursos r ON c.hash = r.hash
             WHERE c.id IN ({placeholders})
             """,
@@ -167,10 +185,12 @@ def enriquecer(filas: list[dict]) -> list[dict]:
     return [{**dict(fila), **meta.get(fila.get("id"), {})} for fila in filas]
 
 
-def borrar_hash(hash_id: str) -> None:
-    """Remove a resource and all its chunks (cascade)."""
+def borrar_hash(hash_id: str, tabla: str) -> None:
+    """Remove a resource's chunks for the given model table, and the resource itself."""
+    chunks_tbl = _nombre_chunks(tabla)
     conn = _conectar()
     try:
+        conn.execute(f"DELETE FROM {chunks_tbl} WHERE hash = ?", (hash_id,))
         conn.execute("DELETE FROM recursos WHERE hash = ?", (hash_id,))
         conn.commit()
     finally:

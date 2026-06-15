@@ -21,7 +21,7 @@ PERFIL_COHERE = {
 }
 
 # Conservative VRAM estimate per ~20 s segment at float16 (encoder activations + decoder KV)
-_VRAM_POR_SEGMENTO_MB = 350
+_VRAM_POR_SEGMENTO_MB = 150
 
 _DTYPE_MAP = {
     "float16": torch.float16,
@@ -90,7 +90,7 @@ def cargar_modelo(params: dict):
 
 
 @cronometrar(etiqueta="transcripcion")
-def transcribir_cohere(paths, idioma: str = "es", perfil=None):
+def transcribir_cohere(paths, idioma: str = "es", perfil=None, batch_size: int | None = None):
     segmentos_raw = cargar_archivo(paths["segmentos"])["segmentos"]
     spans = obtener_fragmentos_asr(segmentos_raw, PERFIL_COHERE)
 
@@ -103,7 +103,7 @@ def transcribir_cohere(paths, idioma: str = "es", perfil=None):
 
     torch_dtype = _DTYPE_MAP[params["torch_dtype"]]
     device = params["device"]
-    batch_size = params["batch_size"]
+    batch_size = batch_size if batch_size is not None else params["batch_size"]
     model_device = next(model.parameters()).device
 
     print(
