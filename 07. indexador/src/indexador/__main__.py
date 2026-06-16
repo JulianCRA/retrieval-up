@@ -128,20 +128,30 @@ def procesar(
 ):
 	mod = importlib.import_module(f"indexador.{backend}")
 	db = mod.abrir(db_ruta)
+	fallos: list[str] = []
 	total = len(hashes)
 	for i, hash_id in enumerate(hashes, 1):
 		print(f"\n[PIPELINE] Indexando recurso {i} de {total}")
-		_procesar_hash(
-			hash_id,
-			db=db,
-			backend_mod=mod,
-			embedder=embedder,
-			tabla=tabla,
-			reclear=reclear,
-			tags=tags,
-		)
+		try:
+			_procesar_hash(
+				hash_id,
+				db=db,
+				backend_mod=mod,
+				embedder=embedder,
+				tabla=tabla,
+				reclear=reclear,
+				tags=tags,
+			)
+		except Exception as e:
+			print(f"[ERROR] Hash '{hash_id}': {e}")
+			fallos.append(hash_id)
 		# Tras el primer hash, no recrear de nuevo en los siguientes.
 		reclear = False
+
+	if fallos:
+		print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
+		if len(fallos) >= total:
+			sys.exit(1)
 
 
 @cronometrar(etiqueta="tokenizacion_bm25")
@@ -169,8 +179,7 @@ def _procesar_hash(
 		with medir("lectura_fragmentos"):
 			data = ju.cargar_archivo(fragmentos_path)
 		if not data:
-			print(f"[ERROR] No se pudo cargar '{fragmentos_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se pudo cargar '{fragmentos_path}'.")
 
 		fragmentos = data.get("fragmentos")
 		if not fragmentos:
@@ -190,8 +199,7 @@ def _procesar_hash(
 		# --- Vectores ---
 		meta_vec = ju.cargar_archivo(vectores_meta_path)
 		if not meta_vec:
-			print(f"[ERROR] No se pudo cargar '{vectores_meta_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se pudo cargar '{vectores_meta_path}'.")
 
 		# --- Tiempos de etapas anteriores ---
 		_transcripciones_meta = ju.cargar_archivo(folder / "transcripciones.json")
@@ -207,19 +215,16 @@ def _procesar_hash(
 
 		embedder_id = embedder or meta_vec.get("embedder")
 		if not embedder_id:
-			print(f"[ERROR] No se pudo determinar el embedder para '{hash_id}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se pudo determinar el embedder para '{hash_id}'.")
 		if embedder and meta_vec.get("embedder") and embedder != meta_vec["embedder"]:
-			print(
-				f"[ERROR] El embedder solicitado '{embedder}' no coincide con "
+			raise RuntimeError(
+				f"El embedder solicitado '{embedder}' no coincide con "
 				f"el de vectores.json ('{meta_vec['embedder']}') para hash={hash_id}."
 			)
-			sys.exit(1)
 
 		dim = int(meta_vec.get("dim") or 0)
 		if dim <= 0:
-			print(f"[ERROR] 'dim' invalido en '{vectores_meta_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"'dim' invalido en '{vectores_meta_path}'.")
 
 		# --- Deduplicacion ---
 		nombre_tabla = tabla or embedder_id
@@ -233,15 +238,13 @@ def _procesar_hash(
 			with medir("carga_npz"):
 				npz = np.load(vectores_npz_path)
 		except FileNotFoundError:
-			print(f"[ERROR] No se encontro '{vectores_npz_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se encontro '{vectores_npz_path}'.")
 		embeddings = npz["embeddings"]
 		if embeddings.shape != (len(fragmentos), dim):
-			print(
-				f"[ERROR] Shape de embeddings {embeddings.shape} no coincide con "
+			raise RuntimeError(
+				f"Shape de embeddings {embeddings.shape} no coincide con "
 				f"(num_fragmentos={len(fragmentos)}, dim={dim})."
 			)
-			sys.exit(1)
 		embeddings = embeddings.astype(np.float32, copy=False)
 
 		nan_mask = ~np.isfinite(embeddings).all(axis=1)

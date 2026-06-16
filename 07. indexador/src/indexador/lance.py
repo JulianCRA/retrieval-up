@@ -62,11 +62,10 @@ def escribir_tabla(
 	tabla = db.open_table(nombre)
 	dim_tabla = tabla.schema.field("vector").type.list_size
 	if dim_tabla != dim:
-		print(
-			f"[ERROR] Dim de la tabla '{nombre}' ({dim_tabla}) "
+		raise RuntimeError(
+			f"Dim de la tabla '{nombre}' ({dim_tabla}) "
 			f"no coincide con dim del lote ({dim})."
 		)
-		sys.exit(1)
 	tabla.add(filas)
 	print(f"[OK] Tabla '{nombre}': agregadas {len(filas)} filas (total={tabla.count_rows()}).")
 	_crear_indice_ann(tabla)
