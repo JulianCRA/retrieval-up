@@ -20,16 +20,229 @@ import uuid
 from flask import Flask, Response, abort, redirect, render_template, request, url_for
 
 from compartido.rutas import ARCHIVO_REGISTRO, INDICE_DB
+from recuperador.rerank import RERANKERS as RERANKERS_DISPONIBLES
 
 app = Flask(__name__)
 
 PAGE_SIZE = 24
 EMBEDDERS = ["qwen3-0.6b", "bge-m3", "e5-large-instruct", "granite-107m", "jina-v3"]
+MODOS_BUSQUEDA = ["rrf", "wrrf", "denso", "bm25"]
 _ANSI = re.compile(r"\x1b\[[0-9;]*[mGKHFABCDJhs]")
 
 # ── In-memory job store ───────────────────────────────────────────────────────
 _jobs: dict[str, queue.Queue] = {}
 _jobs_lock = threading.Lock()
+_search_jobs: dict[str, queue.Queue] = {}
+_search_jobs_lock = threading.Lock()
+
+# ─── Search helpers ──────────────────────────────────────────────────────────
+
+def _tablas_lancedb() -> list[str]:
+    """Devuelve la lista de tablas disponibles en el índice LanceDB."""
+    try:
+        import lancedb
+        indice_dir = INDICE_DB.parent
+        if not indice_dir.exists():
+            return []
+        db = lancedb.connect(indice_dir)
+        return sorted(db.list_tables().tables)
+    except Exception:
+        return []
+
+
+def _enriquecer_recursos(resultados: list[dict]) -> list[dict]:
+    """Añade duracion_recurso y has_thumbnail a los items de resultados."""
+    if not resultados:
+        return resultados
+    if not INDICE_DB.exists():
+        for item in resultados:
+            item.setdefault("duracion_recurso", None)
+            item.setdefault("has_thumbnail", False)
+        return resultados
+    hashes = list({r["hash"] for r in resultados if r.get("hash")})
+    if not hashes:
+        return resultados
+    placeholders = ",".join("?" * len(hashes))
+    with _db() as conn:
+        rows = conn.execute(
+            f"SELECT hash, duracion, (thumbnail IS NOT NULL) AS has_thumbnail "
+            f"FROM recursos WHERE hash IN ({placeholders})",
+            hashes,
+        ).fetchall()
+    meta = {
+        r["hash"]: {
+            "duracion_recurso": r["duracion"],
+            "has_thumbnail": bool(r["has_thumbnail"]),
+        }
+        for r in rows
+    }
+    for item in resultados:
+        h = item.get("hash")
+        if h and h in meta:
+            item.update(meta[h])
+        else:
+            item.setdefault("duracion_recurso", None)
+            item.setdefault("has_thumbnail", False)
+    return resultados
+
+
+def _run_search(params: dict, sq: queue.Queue) -> None:
+    """Background thread: runs search pipeline emitting SSE-ready dicts."""
+    import time as _time
+    import json as _json
+
+    def emit(**kwargs: object) -> None:
+        sq.put(kwargs)
+
+    t_total = _time.perf_counter()
+
+    try:
+        from recuperador.busqueda import (
+            abrir_tabla, vectorizar_query,
+            tokenizar_query_bm25, busqueda_semantica, busqueda_sintactica,
+        )
+        from recuperador.fusionado import rrf, wrrf
+        from recuperador.rerank import rerank as _rerank
+        import compartido.indice_utils as iu
+
+        modo     = params["modo"]
+        embedder = params["embedder"]
+        query    = params["query"]
+        top_k    = params["top_k"]
+        reranker = params["reranker"]
+        peso_sem = params["peso_semantica"]
+        device   = params["device"]
+
+        # ── Phase: table ──────────────────────────────────────────────────────
+        emit(type="phase_start", phase="table", label="Abriendo índice…")
+        t0 = _time.perf_counter()
+        try:
+            tabla = abrir_tabla(embedder)
+        except SystemExit as exc:
+            raise RuntimeError(
+                f"No se encontró una tabla para el embedder \u00ab{embedder}\u00bb."
+            ) from exc
+        if tabla is None:
+            raise RuntimeError(f"Tabla \u00ab{embedder}\u00bb vacía o no encontrada.")
+        emit(type="phase_done", phase="table", elapsed=round(_time.perf_counter() - t0, 3))
+
+        vector_query = None
+        tokens_query = None
+
+        # ── Phase: encode query ───────────────────────────────────────────────
+        if modo in ("denso", "rrf", "wrrf", "hibrido"):
+            emit(type="phase_start", phase="encode_query", label="Vectorizando consulta…")
+            t0 = _time.perf_counter()
+            vector_query = vectorizar_query(query, tabla.name, device=device)
+            emit(type="phase_done", phase="encode_query", elapsed=round(_time.perf_counter() - t0, 3))
+
+        # ── Phase: bm25 tokenize ──────────────────────────────────────────────
+        if modo in ("bm25", "rrf", "wrrf", "hibrido"):
+            emit(type="phase_start", phase="bm25_tokenize", label="Tokenizando BM25…")
+            t0 = _time.perf_counter()
+            tokens_query = tokenizar_query_bm25(query)
+            emit(type="phase_done", phase="bm25_tokenize", elapsed=round(_time.perf_counter() - t0, 3))
+
+        semantica  = None
+        sintactica = None
+
+        # ── Phase: dense search ───────────────────────────────────────────────
+        if modo in ("denso", "rrf", "wrrf", "hibrido"):
+            emit(type="phase_start", phase="search_dense", label="Búsqueda semántica…")
+            t0 = _time.perf_counter()
+            semantica = iu.enriquecer(busqueda_semantica(tabla, vector_query, top_k), embedder)
+            emit(type="phase_done", phase="search_dense", elapsed=round(_time.perf_counter() - t0, 3),
+                 n=len(semantica))
+
+        # ── Phase: bm25 search ────────────────────────────────────────────────
+        if modo in ("bm25", "rrf", "wrrf", "hibrido"):
+            emit(type="phase_start", phase="search_bm25", label="Búsqueda BM25…")
+            t0 = _time.perf_counter()
+            sintactica = iu.enriquecer(busqueda_sintactica(tabla, tokens_query, top_k), embedder)
+            emit(type="phase_done", phase="search_bm25", elapsed=round(_time.perf_counter() - t0, 3),
+                 n=len(sintactica))
+
+        # ── Phase: fusion ─────────────────────────────────────────────────────
+        if modo in ("rrf", "hibrido"):
+            emit(type="phase_start", phase="fusion", label="Fusión RRF…")
+            t0 = _time.perf_counter()
+            filas = rrf(semantica, sintactica)
+            emit(type="phase_done", phase="fusion", elapsed=round(_time.perf_counter() - t0, 3))
+        elif modo == "wrrf":
+            emit(type="phase_start", phase="fusion", label="Fusión wRRF…")
+            t0 = _time.perf_counter()
+            filas = wrrf(semantica, sintactica, peso_semantica=peso_sem)
+            emit(type="phase_done", phase="fusion", elapsed=round(_time.perf_counter() - t0, 3))
+        elif modo == "bm25":
+            filas = list(sintactica)
+        else:  # denso
+            filas = list(semantica)
+
+        for rank, fila in enumerate(filas, 1):
+            fila["rank_fusion"] = rank
+
+        # ── Phase: rerank ─────────────────────────────────────────────────────
+        if reranker:
+            emit(type="phase_start", phase="rerank", label=f"Reranking ({reranker})…")
+            t0 = _time.perf_counter()
+            filas = _rerank(query, filas, reranker, device=device)
+            emit(type="phase_done", phase="rerank", elapsed=round(_time.perf_counter() - t0, 3))
+            for rank, fila in enumerate(filas, 1):
+                fila["rank_reranker"] = rank
+
+        filas = filas[:top_k]
+
+        sort_options: list[str] = []
+        if reranker:
+            sort_options.append("reranker")
+        if modo in ("rrf", "wrrf", "hibrido"):
+            sort_options.extend(["rrf", "semantico", "sintactico"])
+        elif modo == "denso":
+            sort_options.append("semantico")
+        elif modo == "bm25":
+            sort_options.append("sintactico")
+
+        _EXCLUIR = {"vector", "texto_bm25"}
+        resultados: list[dict] = []
+        for fila in filas:
+            item = {k: v for k, v in fila.items() if k not in _EXCLUIR}
+            so = item.pop("scores_origen", None) or {}
+            ro = item.pop("ranks_origen", None) or {}
+            if modo in ("rrf", "wrrf", "hibrido"):
+                item["score_denso"] = so.get("denso")
+                item["score_bm25"]  = so.get("bm25")
+                item["rank_denso"]  = ro.get("denso")
+                item["rank_bm25"]   = ro.get("bm25")
+            else:
+                item["score_denso"] = fila.get("score") if modo == "denso" else None
+                item["score_bm25"]  = fila.get("score") if modo == "bm25"  else None
+                item["rank_denso"]  = None
+                item["rank_bm25"]   = None
+            segs_raw = item.pop("segmentos_json", None) or "[]"
+            try:
+                item["segmentos"] = _json.loads(segs_raw) if isinstance(segs_raw, str) else (segs_raw or [])
+            except (TypeError, ValueError):
+                item["segmentos"] = []
+            resultados.append(item)
+
+        resultados = _enriquecer_recursos(resultados)
+        total_elapsed = round(_time.perf_counter() - t_total, 3)
+
+        emit(type="results", data={
+            "query":          query,
+            "embedder":       embedder,
+            "modo":           modo,
+            "reranker":       reranker,
+            "sort_options":   sort_options,
+            "num_resultados": len(resultados),
+            "resultados":     resultados,
+            "total_elapsed":  total_elapsed,
+        })
+
+    except Exception as exc:
+        emit(type="error", message=str(exc))
+    finally:
+        sq.put(None)  # sentinel → SSE generator exits
 
 
 # ─── Browse helpers ───────────────────────────────────────────────────────────
@@ -362,6 +575,111 @@ def pipeline_submit():
     ).start()
 
     return {"job_id": job_id}
+
+
+# ── Search ───────────────────────────────────────────────────────────────────
+
+@app.route("/search")
+def search():
+    tablas = _tablas_lancedb()
+    return render_template(
+        "search.html",
+        tablas=tablas,
+        rerankers=list(RERANKERS_DISPONIBLES.keys()),
+    )
+
+
+@app.route("/search/submit", methods=["POST"])
+def search_submit():
+    data = request.get_json(force=True)
+    if not data:
+        return {"error": "JSON body requerido"}, 400
+
+    query = str(data.get("query", "")).strip()
+    if not query:
+        return {"error": "La consulta no puede estar vacía"}, 400
+
+    embedder = str(data.get("embedder", "")).strip()
+    if not embedder:
+        return {"error": "Se requiere el embedder"}, 400
+
+    modo = str(data.get("modo", "rrf"))
+    if modo not in MODOS_BUSQUEDA:
+        return {"error": f"Modo inválido: {modo!r}"}, 400
+
+    try:
+        top_k = max(1, min(50, int(data.get("top_k", 10))))
+    except (ValueError, TypeError):
+        top_k = 10
+
+    reranker = data.get("reranker") or None
+    if reranker and reranker not in RERANKERS_DISPONIBLES:
+        return {"error": f"Reranker inválido: {reranker!r}"}, 400
+
+    try:
+        peso = float(data.get("peso_semantica", 0.7))
+        peso = max(0.0, min(1.0, peso))
+    except (ValueError, TypeError):
+        peso = 0.7
+
+    forzar_cpu = bool(data.get("forzar_cpu", False))
+
+    from compartido.utils import crear_perfil_hardware
+    device = crear_perfil_hardware(
+        forzado={"device": "cpu"} if forzar_cpu else None
+    )["device"]
+
+    params = {
+        "query":          query,
+        "embedder":       embedder,
+        "modo":           modo,
+        "top_k":          top_k,
+        "reranker":       reranker,
+        "peso_semantica": peso,
+        "device":         device,
+    }
+
+    job_id = str(uuid.uuid4())
+    sq: queue.Queue = queue.Queue()
+    with _search_jobs_lock:
+        _search_jobs[job_id] = sq
+
+    threading.Thread(
+        target=_run_search, args=(params, sq), daemon=True
+    ).start()
+
+    return {"job_id": job_id}
+
+
+@app.route("/search/stream/<job_id>")
+def search_stream(job_id: str):
+    with _search_jobs_lock:
+        sq = _search_jobs.get(job_id)
+    if sq is None:
+        abort(404)
+
+    def generate():
+        while True:
+            try:
+                msg = sq.get(timeout=300)  # 5 min — model load can be slow
+                if msg is None:
+                    with _search_jobs_lock:
+                        _search_jobs.pop(job_id, None)
+                    yield 'data: {"type":"stream_end"}\n\n'
+                    break
+                yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
+            except queue.Empty:
+                yield 'data: {"type":"ping"}\n\n'
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.route("/pipeline/stream/<job_id>")
