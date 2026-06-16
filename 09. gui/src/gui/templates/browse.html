@@ -136,6 +136,61 @@
     color: var(--pico-muted-color);
   }
   .empty-state big { font-size: 3rem; display: block; margin-bottom: 0.5rem; }
+
+  /* ── Hash label ── */
+  .card-hash {
+    font-family: monospace;
+    font-size: 0.72rem;
+    color: var(--pico-muted-color);
+    letter-spacing: 0.03em;
+  }
+
+  /* ── Chunks button ── */
+  .chunks-btn {
+    margin-top: 0.5rem;
+    font-size: 0.78rem;
+    padding: 0.2rem 0.65rem;
+    width: 100%;
+  }
+
+  /* ── Chunks modal ── */
+  #chunks-dialog article {
+    max-width: 720px;
+    width: 95vw;
+  }
+  #chunks-dialog header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  #chunks-dialog header strong {
+    flex: 1;
+    font-size: 1rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chunk-item {
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--pico-muted-border-color);
+  }
+  .chunk-item:last-child { border-bottom: none; }
+  .chunk-ts {
+    display: block;
+    font-family: monospace;
+    font-size: 0.82rem;
+    color: var(--pico-primary);
+    font-weight: 600;
+    margin-bottom: 0.2rem;
+  }
+  .chunk-text {
+    margin: 0;
+    line-height: 1.55;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 </style>
 
 <h2>Recursos indexados</h2>
@@ -174,6 +229,7 @@
 
     <div class="card-body">
       <div class="card-title" title="{{ r.titulo }}">{{ r.titulo or r.hash }}</div>
+      <div class="card-hash" title="{{ r.hash }}">{{ r.hash }}</div>
 
       {% if r.uri %}
       <a class="card-uri" href="{{ r.uri }}" target="_blank" rel="noopener noreferrer"
@@ -200,6 +256,10 @@
         {% endif %}
       </div>
       {% endif %}
+
+      <button class="chunks-btn secondary outline"
+              data-hash="{{ r.hash }}"
+              data-titulo="{{ r.titulo or r.hash | e }}">Ver chunks</button>
     </div>
   </article>
   {% endfor %}
@@ -257,5 +317,125 @@
   {% endif %}
 </div>
 {% endif %}
+
+{# ── Chunks modal ── #}
+<dialog id="chunks-dialog">
+  <article>
+    <header>
+      <strong id="chunks-titulo"></strong>
+      <button id="chunks-close" class="secondary outline"
+              aria-label="Cerrar" style="flex-shrink:0;width:auto;padding:0.2rem 0.6rem;">✕</button>
+    </header>
+    <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.85rem;flex-wrap:wrap;">
+      <label for="chunks-emb-sel" style="margin:0;font-size:0.9rem;white-space:nowrap;">Embedder:</label>
+      <select id="chunks-emb-sel" style="margin:0;flex:1;min-width:150px;"></select>
+    </div>
+    <div id="chunks-body" style="max-height:58vh;overflow-y:auto;padding-right:0.2rem;"></div>
+  </article>
+</dialog>
+
+<script>
+(function () {
+  'use strict';
+  var dialog  = document.getElementById('chunks-dialog');
+  var titleEl = document.getElementById('chunks-titulo');
+  var selEl   = document.getElementById('chunks-emb-sel');
+  var bodyEl  = document.getElementById('chunks-body');
+  var curHash = null;
+
+  function fmtTime(s) {
+    if (s == null || isNaN(s)) return '--:--';
+    var h   = Math.floor(s / 3600);
+    var m   = Math.floor((s % 3600) / 60);
+    var sec = Math.floor(s % 60);
+    var mm  = String(m).padStart(2, '0');
+    var ss  = String(sec).padStart(2, '0');
+    return h > 0 ? h + ':' + mm + ':' + ss : mm + ':' + ss;
+  }
+
+  function renderChunks(chunks) {
+    bodyEl.innerHTML = '';
+    if (!chunks || !chunks.length) {
+      var p = document.createElement('p');
+      p.style.color = 'var(--pico-muted-color)';
+      p.textContent = 'Sin chunks para este embedder.';
+      bodyEl.appendChild(p);
+      return;
+    }
+    chunks.forEach(function (c) {
+      var item = document.createElement('div');
+      item.className = 'chunk-item';
+      var ts = document.createElement('span');
+      ts.className = 'chunk-ts';
+      ts.textContent = fmtTime(c.inicio) + ' → ' + fmtTime(c.fin);
+      var txt = document.createElement('p');
+      txt.className = 'chunk-text';
+      txt.textContent = c.texto || '';
+      item.appendChild(ts);
+      item.appendChild(txt);
+      bodyEl.appendChild(item);
+    });
+  }
+
+  function showLoading() {
+    bodyEl.innerHTML = '';
+    var p = document.createElement('p');
+    p.textContent = 'Cargando…';
+    p.style.color = 'var(--pico-muted-color)';
+    bodyEl.appendChild(p);
+  }
+
+  function loadChunks(hash, embedder) {
+    showLoading();
+    var url = '/api/chunks/' + encodeURIComponent(hash);
+    if (embedder) url += '?embedder=' + encodeURIComponent(embedder);
+    fetch(url)
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        selEl.innerHTML = '';
+        (data.available || []).forEach(function (e) {
+          var opt = document.createElement('option');
+          opt.value = e;
+          opt.textContent = e;
+          if (e === data.embedder) opt.selected = true;
+          selEl.appendChild(opt);
+        });
+        renderChunks(data.chunks);
+      })
+      .catch(function (err) {
+        bodyEl.innerHTML = '';
+        var p = document.createElement('p');
+        p.style.color = 'red';
+        p.textContent = 'Error: ' + err.message;
+        bodyEl.appendChild(p);
+      });
+  }
+
+  document.querySelectorAll('.chunks-btn').forEach(function (btn) {
+    btn.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      curHash = this.dataset.hash;
+      titleEl.textContent = this.dataset.titulo || curHash;
+      selEl.innerHTML = '';
+      loadChunks(curHash, '');
+      dialog.showModal();
+    });
+  });
+
+  selEl.addEventListener('change', function () {
+    if (curHash) loadChunks(curHash, this.value);
+  });
+
+  document.getElementById('chunks-close').addEventListener('click', function () {
+    dialog.close();
+  });
+  dialog.addEventListener('click', function (ev) {
+    if (ev.target === dialog) dialog.close();
+  });
+})();
+</script>
 
 {% endblock %}

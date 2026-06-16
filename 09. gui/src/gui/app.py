@@ -526,6 +526,50 @@ def thumbnail(hash_id: str):
     return resp
 
 
+@app.route("/api/chunks/<hash_id>")
+def api_chunks(hash_id: str):
+    """Return chunks for a resource, optionally filtered by embedder."""
+    if not re.fullmatch(r"[0-9a-fA-F]{8,64}", hash_id):
+        abort(400)
+    if not INDICE_DB.exists():
+        return {"error": "Índice no disponible"}, 404
+
+    def _tbl(emb: str) -> str:
+        return "chunks_" + re.sub(r"[^a-zA-Z0-9_]", "_", emb)
+
+    available: list[str] = []
+    with _db() as conn:
+        for emb in EMBEDDERS:
+            try:
+                n = conn.execute(
+                    f"SELECT COUNT(*) FROM {_tbl(emb)} WHERE hash = ?", (hash_id,)
+                ).fetchone()[0]
+                if n:
+                    available.append(emb)
+            except sqlite3.OperationalError:
+                pass
+
+    if not available:
+        return {"error": "Sin chunks para este recurso"}, 404
+
+    embedder = request.args.get("embedder", "").strip()
+    if embedder not in available:
+        embedder = available[0]
+
+    with _db() as conn:
+        rows = conn.execute(
+            f"SELECT chunk_idx, texto, inicio, fin "
+            f"FROM {_tbl(embedder)} WHERE hash = ? ORDER BY chunk_idx",
+            (hash_id,),
+        ).fetchall()
+
+    return {
+        "embedder":  embedder,
+        "available": available,
+        "chunks":    [dict(r) for r in rows],
+    }
+
+
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 @app.route("/pipeline")
