@@ -54,7 +54,8 @@ def procesar(hashes: list[str], backend: str = "silero", forzar_cpu: bool = Fals
 
 	if fallos:
 		print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
-		sys.exit(1)
+		if len(fallos) >= total:
+			sys.exit(1)
 
 
 def _texto_desde_segmentos(segmentos: list[dict]) -> str:

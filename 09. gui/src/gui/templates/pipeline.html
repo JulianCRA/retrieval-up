@@ -1263,8 +1263,10 @@ document.getElementById("pipeline-form").addEventListener("submit", async (e) =>
   // Open SSE stream
   const es = new EventSource(`/pipeline/stream/${job_id}`);
   let jobFinished = false;  // set to true on clean completion or stream_end
+  let _sseErrors = 0;
 
   es.onmessage = (ev) => {
+    _sseErrors = 0;  // successful message resets reconnect counter
     try {
       const msg = JSON.parse(ev.data);
       // Close cleanly once the server signals the stream is done
@@ -1282,12 +1284,20 @@ document.getElementById("pipeline-form").addEventListener("submit", async (e) =>
     // EventSource fires onerror on a clean server-side close too.
     // Only treat it as a real error if the job hadn't already finished.
     if (jobFinished) { es.close(); return; }
-    clearInterval(elapsedTimer);
-    appendLog("\n[ERROR] Conexión SSE interrumpida.", "log-error");
-    logStatus.textContent = "Conexión perdida";
-    runBtn.disabled = false;
-    runBtn.textContent = "▶ Ejecutar pipeline";
-    es.close();
+    _sseErrors++;
+    if (_sseErrors > 10) {
+      // Too many consecutive failures — give up.
+      es.close();
+      clearInterval(elapsedTimer);
+      appendLog("\n[ERROR] Conexión SSE interrumpida (sin reconexión).", "log-error");
+      logStatus.textContent = "Conexión perdida";
+      runBtn.disabled = false;
+      runBtn.textContent = "▶ Ejecutar pipeline";
+    } else if (_sseErrors === 1) {
+      // First blip — log once and let EventSource auto-reconnect.
+      appendLog("\n[AVISO] Conexión SSE perdida, reconectando…", "log-warn");
+      logStatus.textContent = "Reconectando…";
+    }
   };
 });
 </script>

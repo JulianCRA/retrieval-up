@@ -30,7 +30,8 @@ MODOS_BUSQUEDA = ["rrf", "wrrf", "denso", "bm25"]
 _ANSI = re.compile(r"\x1b\[[0-9;]*[mGKHFABCDJhs]")
 
 # ── In-memory job store ───────────────────────────────────────────────────────
-_jobs: dict[str, queue.Queue] = {}
+_MISSING = object()  # sentinel: job_id not in _jobs at all
+_jobs: dict[str, queue.Queue | None] = {}  # None = finished job
 _jobs_lock = threading.Lock()
 _search_jobs: dict[str, queue.Queue] = {}
 _search_jobs_lock = threading.Lock()
@@ -685,9 +686,21 @@ def search_stream(job_id: str):
 @app.route("/pipeline/stream/<job_id>")
 def pipeline_stream(job_id: str):
     with _jobs_lock:
-        q = _jobs.get(job_id)
-    if q is None:
+        entry = _jobs.get(job_id, _MISSING)
+    if entry is _MISSING:
         abort(404)
+    if entry is None:
+        # Job already finished; reconnecting client gets immediate stream_end.
+        return Response(
+            'data: {"type":"stream_end"}\n\n',
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+    q = entry
 
     def generate():
         while True:
@@ -695,7 +708,7 @@ def pipeline_stream(job_id: str):
                 msg = q.get(timeout=30)
                 if msg is None:           # sentinel → pipeline thread finished
                     with _jobs_lock:
-                        _jobs.pop(job_id, None)
+                        _jobs[job_id] = None  # mark done; keep for reconnects
                     yield 'data: {"type":"stream_end"}\n\n'
                     break
                 yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"

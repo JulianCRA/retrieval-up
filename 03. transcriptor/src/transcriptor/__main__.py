@@ -84,7 +84,8 @@ def procesar(hashes: list[str], modelo="vosk", forzar_cpu: bool = False, batch_s
                 torch.cuda.empty_cache()
     if fallos:
         print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
-        sys.exit(1)
+        if len(fallos) >= total:
+            sys.exit(1)
 
 def procesar_hash(hash, modelo="vosk", perfil=None, batch_size: int | None = None):
     folder = DESCARGAS_DIR / hash

@@ -117,18 +117,28 @@ def procesar(
 
 	model = cargar_modelo(embedder_id, device)
 
+	fallos: list[str] = []
 	total = len(hashes)
 	for i, hash_id in enumerate(hashes, 1):
 		print(f"\n[PIPELINE] Vectorizando recurso {i} de {total}")
-		_procesar_hash(
-			hash_id,
-			model=model,
-			spec=spec,
-			embedder_id=embedder_id,
-			batch_size=batch_size,
-			normalizar=normalizar,
-			device=device,
-		)
+		try:
+			_procesar_hash(
+				hash_id,
+				model=model,
+				spec=spec,
+				embedder_id=embedder_id,
+				batch_size=batch_size,
+				normalizar=normalizar,
+				device=device,
+			)
+		except Exception as e:
+			print(f"[ERROR] Hash '{hash_id}': {e}")
+			fallos.append(hash_id)
+
+	if fallos:
+		print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
+		if len(fallos) >= total:
+			sys.exit(1)
 
 
 def _procesar_hash(
@@ -147,8 +157,7 @@ def _procesar_hash(
 		with medir("lectura_fragmentos"):
 			data = ju.cargar_archivo(fragmentos_path)
 		if not data:
-			print(f"[ERROR] No se pudo cargar '{fragmentos_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se pudo cargar '{fragmentos_path}'.")
 
 		fragmentos = data.get("fragmentos")
 		if not fragmentos:
@@ -210,7 +219,7 @@ def _procesar_hash(
 			return
 
 		print(f"[ERROR] No se pudo guardar '{vectores_meta_path}'.")
-		sys.exit(1)
+		raise RuntimeError(f"No se pudo guardar '{vectores_meta_path}'.")
 
 
 if __name__ == "__main__":

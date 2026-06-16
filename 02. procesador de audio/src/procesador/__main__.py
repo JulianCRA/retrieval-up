@@ -138,7 +138,8 @@ def procesar(hashes: list[str], metodo=None):
 
     if fallos:
         print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
-        sys.exit(1)
+        if len(fallos) >= total:
+            sys.exit(1)
 
 def procesar_hash(hash, metodo=None, perfil=None, executor=None):
     folder = DESCARGAS_DIR / hash
@@ -166,8 +167,8 @@ def procesar_archivo(ruta, metodo=None, folder=None, perfil=None, executor=None)
             print(f"[INFO] Aplicando VAD '{metodo}' para eliminar silencios...")
             segmentos = vad(audio, samplerate, metodo=metodo, executor=executor)
             segmentos = procesar_segmentos(segmentos, min_gap=0.3)
-            with medir("audio_prueba"):
-                generar_audio_de_prueba(audio, samplerate, segmentos, folder)
+            # with medir("audio_prueba"):
+            #     generar_audio_de_prueba(audio, samplerate, segmentos, folder)
 
         ruta_nueva = folder / "audio_procesado.wav"
         with medir("escritura_audio"):
