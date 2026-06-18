@@ -1,11 +1,12 @@
 """Evalúa el pipeline de recuperación con un dataset de consultas con anotación temporal gold.
 
-El gold se define ANTES del chunking como un intervalo temporal (gold_inicio, gold_fin)
-en segundos dentro de un audio específico. Esto permite comparar cualquier combinación de
-estrategia de fragmentación, embedder, modo de recuperación y reranker con el mismo dataset.
+El gold se define ANTES del chunking como uno o varios intervalos temporales dentro de un
+audio específico. El formato legacy usa (gold_inicio, gold_fin); el formato nuevo usa
+gold_spans=[{"inicio": ..., "fin": ...}, ...]. Esto permite comparar cualquier combinación
+de estrategia de fragmentación, embedder, modo de recuperación y reranker con el mismo dataset.
 
-Por cada consulta se evalúan todas las posiciones del pool no truncado contra el gold span
-usando solapamiento temporal como proxy de relevancia.
+Por cada consulta se evalúan todas las posiciones del pool no truncado contra la unión de los
+gold spans usando solapamiento temporal como proxy de relevancia.
 
 Métricas computadas a k ∈ {5, 10, 20, 40}:
   - Recall@k    → 1 si algún chunk en top-k tiene overlap >= umbral, si no 0
@@ -47,6 +48,8 @@ _EVAL_KS: tuple[int, ...] = (5, 10, 20, 40)
 # Campos de alto peso que no aportan valor en la salida JSON.
 _HEAVY_FIELDS = frozenset({"vector", "texto_bm25"})
 
+GoldSpan = tuple[float, float]
+
 
 def _safe_slug(text: str) -> str:
     text = text.strip().lower()
@@ -56,34 +59,106 @@ def _safe_slug(text: str) -> str:
 
 # ─────────────────────── solapamiento temporal ───────────────────────────────
 
-def _overlap(chunk_inicio: float, chunk_fin: float, gold_inicio: float, gold_fin: float) -> float:
-    """Fracción del gold span cubierta por el chunk (0–1)."""
-    denom = gold_fin - gold_inicio
-    if denom <= 0:
+def _merge_intervals(intervals: list[GoldSpan]) -> list[GoldSpan]:
+    if not intervals:
+        return []
+    merged: list[list[float]] = []
+    for start, end in sorted(intervals):
+        if end <= start:
+            continue
+        if not merged or start > merged[-1][1]:
+            merged.append([start, end])
+        else:
+            merged[-1][1] = max(merged[-1][1], end)
+    return [(start, end) for start, end in merged]
+
+
+def _gold_duration(gold_spans: list[GoldSpan]) -> float:
+    return sum(end - start for start, end in gold_spans)
+
+
+def _gold_bounds(gold_spans: list[GoldSpan]) -> GoldSpan:
+    if not gold_spans:
+        return 0.0, 0.0
+    return gold_spans[0][0], gold_spans[-1][1]
+
+
+def _serialize_gold_spans(gold_spans: list[GoldSpan]) -> list[dict[str, float]]:
+    return [
+        {"inicio": round(start, 3), "fin": round(end, 3)}
+        for start, end in gold_spans
+    ]
+
+
+def _extract_gold_spans(query: dict[str, Any]) -> list[GoldSpan]:
+    qid = query.get("query_id", "?")
+    raw_spans = query.get("gold_spans")
+    spans: list[GoldSpan] = []
+
+    if raw_spans is not None:
+        if not isinstance(raw_spans, list) or not raw_spans:
+            raise ValueError(f"Consulta {qid!r}: gold_spans debe ser una lista no vacía")
+        for idx, span in enumerate(raw_spans, 1):
+            if not isinstance(span, dict):
+                raise ValueError(f"Consulta {qid!r}: gold_spans[{idx}] debe ser un objeto")
+            if "inicio" not in span or "fin" not in span:
+                raise ValueError(
+                    f"Consulta {qid!r}: gold_spans[{idx}] debe incluir 'inicio' y 'fin'"
+                )
+            start = float(span["inicio"])
+            end = float(span["fin"])
+            if end <= start:
+                raise ValueError(
+                    f"Consulta {qid!r}: gold_spans[{idx}] tiene un intervalo inválido"
+                )
+            spans.append((start, end))
+    else:
+        if "gold_inicio" not in query or "gold_fin" not in query:
+            raise ValueError(
+                f"Consulta {qid!r}: debe definir gold_inicio/gold_fin o gold_spans"
+            )
+        start = float(query["gold_inicio"])
+        end = float(query["gold_fin"])
+        if end <= start:
+            raise ValueError(f"Consulta {qid!r}: gold_fin debe ser mayor que gold_inicio")
+        spans.append((start, end))
+
+    merged = _merge_intervals(spans)
+    if not merged:
+        raise ValueError(f"Consulta {qid!r}: no hay gold spans válidos")
+    return merged
+
+
+def _overlap(chunk_inicio: float, chunk_fin: float, gold_spans: list[GoldSpan]) -> float:
+    """Fracción del gold cubierta por el chunk (0–1)."""
+    denom = _gold_duration(gold_spans)
+    if denom <= 0 or chunk_fin <= chunk_inicio:
         return 0.0
-    return max(0.0, min(chunk_fin, gold_fin) - max(chunk_inicio, gold_inicio)) / denom
+    covered = 0.0
+    for gold_inicio, gold_fin in gold_spans:
+        covered += max(0.0, min(chunk_fin, gold_fin) - max(chunk_inicio, gold_inicio))
+    return covered / denom
 
 
-def _union_coverage(chunks: list[dict[str, Any]], gold_inicio: float, gold_fin: float) -> float:
-    """Fracción del gold span cubierta por la UNIÓN temporal de los chunks."""
-    denom = gold_fin - gold_inicio
+def _union_coverage(chunks: list[dict[str, Any]], gold_spans: list[GoldSpan]) -> float:
+    """Fracción del gold cubierta por la UNIÓN temporal de los chunks."""
+    denom = _gold_duration(gold_spans)
     if denom <= 0 or not chunks:
         return 0.0
-    intervals: list[list[float]] = []
+    intervals: list[GoldSpan] = []
     for c in chunks:
-        s = max(float(c.get("inicio") or 0.0), gold_inicio)
-        e = min(float(c.get("fin") or 0.0), gold_fin)
-        if e > s:
-            intervals.append([s, e])
+        chunk_inicio = float(c.get("inicio") or 0.0)
+        chunk_fin = float(c.get("fin") or 0.0)
+        if chunk_fin <= chunk_inicio:
+            continue
+        for gold_inicio, gold_fin in gold_spans:
+            s = max(chunk_inicio, gold_inicio)
+            e = min(chunk_fin, gold_fin)
+            if e > s:
+                intervals.append((s, e))
     if not intervals:
         return 0.0
-    intervals.sort()
-    merged = [intervals[0]]
-    for s, e in intervals[1:]:
-        if s <= merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], e)
-        else:
-            merged.append([s, e])
+    merged = _merge_intervals(intervals)
     return min(1.0, sum(e - s for s, e in merged) / denom)
 
 
@@ -98,10 +173,32 @@ def _ndcg(overlaps: list[float]) -> float:
     return dcg / idcg if idcg > 0 else 0.0
 
 
+def _first_hit_rank(pool: list[dict[str, Any]], gold_spans: list[GoldSpan], threshold: float) -> int | None:
+    """Rango 1-based del primer chunk que por sí solo supera el umbral."""
+    for rank, chunk in enumerate(pool, 1):
+        ov = _overlap(
+            float(chunk.get("inicio") or 0.0),
+            float(chunk.get("fin") or 0.0),
+            gold_spans,
+        )
+        if ov >= threshold:
+            return rank
+    return None
+
+
+def _k_needed_for_hit(pool: list[dict[str, Any]], gold_spans: list[GoldSpan], threshold: float) -> int | None:
+    """Mínimo k 1-based cuya cobertura acumulada alcanza el umbral."""
+    if threshold <= 0:
+        return 1 if pool else None
+    for k in range(1, len(pool) + 1):
+        if _union_coverage(pool[:k], gold_spans) >= threshold:
+            return k
+    return None
+
+
 def _metrics_at_k(
     pool: list[dict[str, Any]],
-    gold_inicio: float,
-    gold_fin: float,
+    gold_spans: list[GoldSpan],
     k: int,
     threshold: float,
 ) -> dict[str, float]:
@@ -111,14 +208,13 @@ def _metrics_at_k(
         _overlap(
             float(c.get("inicio") or 0.0),
             float(c.get("fin") or 0.0),
-            gold_inicio,
-            gold_fin,
+            gold_spans,
         )
         for c in window
     ]
     recall = 1.0 if any(ov >= threshold for ov in overlaps) else 0.0
     mrr = next((1.0 / (i + 1) for i, ov in enumerate(overlaps) if ov >= threshold), 0.0)
-    cov = _union_coverage(window, gold_inicio, gold_fin)
+    cov = _union_coverage(window, gold_spans)
     # hit@k: 1 if the UNION of top-k chunks covers >= threshold of the gold span.
     # Unlike recall (single-chunk), this fires when the answer is spread across chunks.
     hit = 1.0 if cov >= threshold else 0.0
@@ -133,21 +229,22 @@ def _metrics_at_k(
 
 def _all_metrics(
     pool: list[dict[str, Any]],
-    gold_inicio: float,
-    gold_fin: float,
+    gold_spans: list[GoldSpan],
     eval_ks: tuple[int, ...],
     threshold: float,
 ) -> dict[str, Any]:
     """Todas las métricas a todos los k-valores más las métricas de techo (pool completo)."""
     out: dict[str, Any] = {"pool_size": len(pool)}
     for k in eval_ks:
-        for metric, val in _metrics_at_k(pool, gold_inicio, gold_fin, k, threshold).items():
+        for metric, val in _metrics_at_k(pool, gold_spans, k, threshold).items():
             out[f"{metric}_at_{k}"] = val
     # Techo: calculado a k = tamaño real del pool, independientemente de eval_ks.
-    ceil_m = _metrics_at_k(pool, gold_inicio, gold_fin, len(pool), threshold)
+    ceil_m = _metrics_at_k(pool, gold_spans, len(pool), threshold)
     out["pool_recall"] = ceil_m["recall"]
     out["pool_hit"] = ceil_m["hit"]
     out["pool_coverage"] = ceil_m["coverage"]
+    out["first_hit_rank"] = _first_hit_rank(pool, gold_spans, threshold)
+    out["k_needed_for_hit"] = _k_needed_for_hit(pool, gold_spans, threshold)
     return out
 
 
@@ -171,11 +268,12 @@ def _aggregate(all_query_metrics: list[dict[str, Any]], eval_ks: tuple[int, ...]
 def _load_queries(path: Path) -> list[dict[str, Any]]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     queries: list[dict[str, Any]] = raw if isinstance(raw, list) else raw.get("queries", [])
-    required = {"query_id", "query", "hash", "gold_inicio", "gold_fin"}
+    required = {"query_id", "query", "hash"}
     for i, q in enumerate(queries):
         missing = required - q.keys()
         if missing:
             raise ValueError(f"Consulta #{i} ({q.get('query_id', '?')!r}): faltan campos {missing}")
+        _extract_gold_spans(q)
     return queries
 
 
@@ -218,36 +316,6 @@ def _retrieve(
         pool = _rerank(query, pool, reranker, device=device)
 
     return pool  # intencionalemente NO truncado a top_k
-
-
-# ─────────────────────── anotación de salida ─────────────────────────────────
-
-def _annotate_pool(
-    pool: list[dict[str, Any]],
-    gold_inicio: float,
-    gold_fin: float,
-) -> list[dict[str, Any]]:
-    """Añade rank y overlap a cada chunk del pool, elimina campos pesados y
-    parsea segmentos_json → segmentos para legibilidad."""
-    result: list[dict[str, Any]] = []
-    for rank, chunk in enumerate(pool, 1):
-        ov = _overlap(
-            float(chunk.get("inicio") or 0.0),
-            float(chunk.get("fin") or 0.0),
-            gold_inicio,
-            gold_fin,
-        )
-        entry: dict[str, Any] = {k: v for k, v in chunk.items() if k not in _HEAVY_FIELDS}
-        seg_raw = entry.pop("segmentos_json", None)
-        if seg_raw:
-            try:
-                entry["segmentos"] = json.loads(seg_raw) if isinstance(seg_raw, str) else seg_raw
-            except (TypeError, ValueError):
-                entry["segmentos"] = []
-        entry["rank"] = rank
-        entry["overlap"] = round(ov, 4)
-        result.append(entry)
-    return result
 
 
 # ─────────────────────── resumen en consola ──────────────────────────────────
@@ -328,8 +396,11 @@ def run_eval(args: argparse.Namespace) -> Path:
     for i, q in enumerate(queries, 1):
         qid = q["query_id"]
         query_text = q["query"]
-        gold_inicio = float(q["gold_inicio"])
-        gold_fin = float(q["gold_fin"])
+        gold_spans = _extract_gold_spans(q)
+        gold_payload: dict[str, Any] = {"gold_spans": q.get("gold_spans") or _serialize_gold_spans(gold_spans)}
+        if "gold_inicio" in q and "gold_fin" in q:
+            gold_payload["gold_inicio"] = float(q["gold_inicio"])
+            gold_payload["gold_fin"] = float(q["gold_fin"])
 
         print(f"  [{i}/{len(queries)}] {qid}: «{query_text[:72]}»")
 
@@ -350,26 +421,26 @@ def run_eval(args: argparse.Namespace) -> Path:
                 "query_id": qid,
                 "query": query_text,
                 "hash": q["hash"],
-                "gold_inicio": gold_inicio,
-                "gold_fin": gold_fin,
                 "status": "error",
                 "error": str(exc),
+                **gold_payload,
             })
             continue
 
-        metrics = _all_metrics(pool, gold_inicio, gold_fin, _EVAL_KS, args.overlap_threshold)
+        metrics = _all_metrics(pool, gold_spans, _EVAL_KS, args.overlap_threshold)
         ok_metrics.append(metrics)
 
-        query_results.append({
+        result_entry = {
             "query_id": qid,
             "query": query_text,
             "hash": q["hash"],
-            "gold_inicio": gold_inicio,
-            "gold_fin": gold_fin,
             "status": "ok",
             "metrics": metrics,
-            "pool": _annotate_pool(pool, gold_inicio, gold_fin),
-        })
+            **gold_payload,
+        }
+        if args.guardar_pool:
+            result_entry["pool"] = pool
+        query_results.append(result_entry)
 
         print(
             f"    pool={len(pool)} | pool_recall={metrics['pool_recall']:.2f} | "
@@ -568,6 +639,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Evalúa el pipeline de recuperación con un dataset de consultas con anotación temporal gold.\n"
             "Métricas: Recall@k, MRR@k, nDCG@k, Coverage@k  a  k ∈ {5, 10, 20, 40}.\n\n"
+            "Cada consulta puede usar gold_inicio/gold_fin o gold_spans=[{inicio, fin}, ...].\n"
             "Todos los parámetros son opcionales: si se omite cualquiera de los dos\n"
             "obligatorios (--dataset, --embedder), el script los pregunta interactivamente."
         ),
@@ -584,6 +656,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--forzar-cpu", action="store_true", dest="forzar_cpu", help="Forzar CPU.")
     parser.add_argument("--run-name", default=None, dest="run_name", help="Nombre del run.")
     parser.add_argument("--output-root", default=str(RESULTADOS_DIR), dest="output_root", help=f"Directorio de salida. Default: {RESULTADOS_DIR}.")
+    parser.add_argument(
+        "--guardar-pool",
+        action="store_true",
+        dest="guardar_pool",
+        help="Incluir el pool completo por consulta en el JSON de salida. Default: no.",
+    )
     # Chunking — solo para registro en el JSON de resultados.
     parser.add_argument("--chunk-estrategia", default=None, dest="chunk_estrategia", choices=["semantico", "tamano_fijo"], help="Estrategia de fragmentación usada al indexar.")
     parser.add_argument("--chunk-max-tokens", type=int, default=None, dest="chunk_max_tokens", help="max_tokens del chunker.")

@@ -16,6 +16,8 @@ import tempfile
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 from flask import Flask, Response, abort, redirect, render_template, request, url_for
 
@@ -28,6 +30,9 @@ PAGE_SIZE = 24
 EMBEDDERS = ["qwen3-0.6b", "bge-m3", "e5-large-instruct", "granite-107m", "jina-v3"]
 MODOS_BUSQUEDA = ["rrf", "wrrf", "denso", "bm25"]
 _ANSI = re.compile(r"\x1b\[[0-9;]*[mGKHFABCDJhs]")
+ROOT_DIR = Path(__file__).resolve().parents[3]
+PIPELINE_LOG_PATH = ROOT_DIR / "pipeline_gui.log"
+PIPELINE_REPORT_PATH = ROOT_DIR / "resultados" / "pipeline_runs.json"
 
 # ── In-memory job store ───────────────────────────────────────────────────────
 _MISSING = object()  # sentinel: job_id not in _jobs at all
@@ -35,6 +40,7 @@ _jobs: dict[str, queue.Queue | None] = {}  # None = finished job
 _jobs_lock = threading.Lock()
 _search_jobs: dict[str, queue.Queue] = {}
 _search_jobs_lock = threading.Lock()
+_pipeline_report_lock = threading.Lock()
 
 # ─── Search helpers ──────────────────────────────────────────────────────────
 
@@ -302,6 +308,43 @@ def _valid_uris(text: str) -> list[str]:
     return out
 
 
+def _iso_utc(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+
+
+def _append_pipeline_report(report: dict) -> None:
+    PIPELINE_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with _pipeline_report_lock:
+        if PIPELINE_REPORT_PATH.exists():
+            try:
+                existing = json.loads(PIPELINE_REPORT_PATH.read_text(encoding="utf-8"))
+                data = existing if isinstance(existing, list) else [existing]
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                data = []
+        else:
+            data = []
+
+        data.append(report)
+
+        fd, tmp_path = tempfile.mkstemp(
+            suffix=".json",
+            prefix="pipeline-runs-",
+            dir=str(PIPELINE_REPORT_PATH.parent),
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, ensure_ascii=False, indent=2)
+                fh.write("\n")
+            os.replace(tmp_path, PIPELINE_REPORT_PATH)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+
 def _snapshot_hashes() -> set[str]:
     try:
         if not ARCHIVO_REGISTRO.exists():
@@ -311,10 +354,24 @@ def _snapshot_hashes() -> set[str]:
         return set()
 
 
-def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
+def _run_pipeline(params: dict, uris: list[str], q: queue.Queue, job_id: str) -> None:
     """Background thread: runs each pipeline stage and emits SSE-ready dicts."""
-    import pathlib
-    _log_path = pathlib.Path(__file__).resolve().parents[3] / "pipeline_gui.log"
+    started_at = time.time()
+    t_pipeline = time.perf_counter()
+    failure: dict[str, object] | None = None
+    report: dict[str, object] = {
+        "job_id": job_id,
+        "started_at": _iso_utc(started_at),
+        "finished_at": None,
+        "status": "running",
+        "uris": list(uris),
+        "params": dict(params),
+        "embedders": [],
+        "total_steps": 0,
+        "hashes": [],
+        "steps": [],
+    }
+    _log_path = PIPELINE_LOG_PATH
     _log_fh = open(_log_path, "w", encoding="utf-8", buffering=1)
     _log_fh.write(f"uris: {uris}\nparams: {params}\n\n")
 
@@ -344,6 +401,12 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
             )
         except FileNotFoundError:
             emit_log(step, f"[ERROR] Comando no encontrado: {cmd[0]}")
+            report["steps"].append({
+                "step": step,
+                "command": cmd,
+                "rc": 127,
+                "elapsed_seconds": 0.0,
+            })
             emit(type="step_done", step=step, rc=127, elapsed=0.0)
             return 127
         for line in proc.stdout:
@@ -352,6 +415,12 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
         proc.wait()
         elapsed = time.perf_counter() - t0
         _log_fh.write(f"\n--- rc={proc.returncode} elapsed={elapsed:.2f}s ---\n")
+        report["steps"].append({
+            "step": step,
+            "command": cmd,
+            "rc": proc.returncode,
+            "elapsed_seconds": round(elapsed, 3),
+        })
         emit(type="step_done", step=step, rc=proc.returncode, elapsed=round(elapsed, 2))
         return proc.returncode
 
@@ -359,6 +428,8 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
     try:
         embedders = EMBEDDERS if params["frag_todos"] else [params["frag_embedder"]]
         total_steps = 4 + len(embedders) * 3
+        report["embedders"] = list(embedders)
+        report["total_steps"] = total_steps
         emit(type="run_started", total_steps=total_steps, uris=uris)
 
         cpu_flag = ["--forzar-cpu"] if params["forzar_cpu"] else []
@@ -371,6 +442,7 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
         # ── 1. descargar ──────────────────────────────────────────────────────
         pre = _snapshot_hashes()
         if (rc := run_step("descargar", ["descargar", "-s", tmp_path])) != 0:
+            failure = {"step": "descargar", "rc": rc}
             emit(type="pipeline_error", step="descargar", rc=rc)
             return
 
@@ -380,12 +452,18 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
         post = _snapshot_hashes()
         nuevos = sorted(post - pre)
         if not nuevos:
+            failure = {
+                "step": "descargar",
+                "rc": 0,
+                "message": "Sin hashes nuevos. Verifica la sección Recursos.",
+            }
             emit(type="log", step="descargar",
                  text="[AVISO] No se detectaron hashes nuevos — el contenido puede ya estar descargado.")
             emit(type="pipeline_error", step="descargar", rc=0,
                  message="Sin hashes nuevos. Verifica la sección Recursos.")
             return
 
+        report["hashes"] = list(nuevos)
         emit(type="hashes", hashes=nuevos)
         hflags: list[str] = [flag for h in nuevos for flag in ("--hash", h)]
 
@@ -394,6 +472,7 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
         if params["vad_metodo"] != "ninguno":
             cmd += ["-m", params["vad_metodo"]]
         if (rc := run_step("procesar", cmd)) != 0:
+            failure = {"step": "procesar", "rc": rc}
             emit(type="pipeline_error", step="procesar", rc=rc); return
 
         # ── 3. asr ────────────────────────────────────────────────────────────
@@ -401,11 +480,13 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
         if params.get("asr_batch_size") and params["asr_modelo"] == "cohere":
             cmd += ["--batch-size", str(params["asr_batch_size"])]
         if (rc := run_step("asr", cmd)) != 0:
+            failure = {"step": "asr", "rc": rc}
             emit(type="pipeline_error", step="asr", rc=rc); return
 
         # ── 4. corr ───────────────────────────────────────────────────────────
         cmd = ["corr", *hflags, "--m", params["corr_backend"], *cpu_flag]
         if (rc := run_step("corr", cmd)) != 0:
+            failure = {"step": "corr", "rc": rc}
             emit(type="pipeline_error", step="corr", rc=rc); return
 
         # ── 5–7. frag + vect + indexar (per embedder) ─────────────────────────
@@ -424,6 +505,7 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
                 ]
             cmd += cpu_flag
             if (rc := run_step(f"frag[{emb}]", cmd)) != 0:
+                failure = {"step": f"frag[{emb}]", "rc": rc}
                 emit(type="pipeline_error", step=f"frag[{emb}]", rc=rc); return
 
             cmd = ["vect", *hflags, "--embedder", emb,
@@ -432,6 +514,7 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
                 cmd += ["--sin-normalizar"]
             cmd += cpu_flag
             if (rc := run_step(f"vect[{emb}]", cmd)) != 0:
+                failure = {"step": f"vect[{emb}]", "rc": rc}
                 emit(type="pipeline_error", step=f"vect[{emb}]", rc=rc); return
 
             cmd = ["indexar", *hflags, "--embedder", emb,
@@ -445,11 +528,14 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
             for tag in params.get("idx_tags", []):
                 cmd += ["--tag", tag]
             if (rc := run_step(f"indexar[{emb}]", cmd)) != 0:
+                failure = {"step": f"indexar[{emb}]", "rc": rc}
                 emit(type="pipeline_error", step=f"indexar[{emb}]", rc=rc); return
 
+        report["status"] = "completed"
         emit(type="pipeline_done", hashes=nuevos)
 
     except Exception as exc:
+        failure = {"step": "?", "rc": -1, "message": str(exc)}
         emit(type="pipeline_error", step="?", rc=-1, message=str(exc))
     finally:
         if tmp_path:
@@ -458,6 +544,12 @@ def _run_pipeline(params: dict, uris: list[str], q: queue.Queue) -> None:
             except OSError:
                 pass
         _log_fh.close()
+        report["finished_at"] = _iso_utc(time.time())
+        report["elapsed_seconds"] = round(time.perf_counter() - t_pipeline, 3)
+        report["status"] = "completed" if failure is None else "failed"
+        if failure is not None:
+            report["error"] = failure
+        _append_pipeline_report(report)
         q.put(None)  # sentinel → SSE generator exits
 
 
@@ -600,7 +692,11 @@ def pipeline_submit():
         "frag_overlap":           int(data.get("frag_overlap", 20)),
         "frag_umbral":            float(data.get("frag_umbral", 0.5)),
         "frag_min_tokens":        int(data.get("frag_min_tokens", 64)),
-        "frag_boundary_embedder": data.get("frag_boundary_embedder") or None,
+        "frag_boundary_embedder": (
+            data.get("frag_boundary_embedder") or None
+            if str(data.get("frag_estrategia", "semantico")) == "semantico"
+            else None
+        ),
         "vect_batch_size":        int(data.get("vect_batch_size", 16)),
         "vect_normalizar":        bool(data.get("vect_normalizar", True)),
         "idx_backend":            str(data.get("idx_backend", "lance")),
@@ -616,7 +712,7 @@ def pipeline_submit():
         _jobs[job_id] = q
 
     threading.Thread(
-        target=_run_pipeline, args=(params, uris, q), daemon=True
+        target=_run_pipeline, args=(params, uris, q, job_id), daemon=True
     ).start()
 
     return {"job_id": job_id}

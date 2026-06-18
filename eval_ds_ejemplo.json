@@ -1,13 +1,14 @@
 {
   "dataset_id": "retrieval-up-eval-ejemplo",
   "version": "1.0",
-  "description": "Dataset de ejemplo para evaluar el pipeline de recuperación con evaluar_ret.py. El gold se define como un intervalo temporal (gold_inicio, gold_fin) en segundos dentro del audio original. Esto hace que la anotación sea válida para cualquier combinación de estrategia de fragmentación, embedder y parámetros de chunking.",
+  "description": "Dataset de ejemplo para evaluar el pipeline de recuperación con evaluar_ret.py. El gold se define antes del chunking como un intervalo temporal (gold_inicio, gold_fin) o como una lista de intervalos (gold_spans) en segundos dentro del audio original. Esto hace que la anotación sea válida para cualquier combinación de estrategia de fragmentación, embedder y parámetros de chunking, incluyendo respuestas repartidas en bloques no contiguos.",
   "campos": {
     "query_id": "Identificador único de la consulta. Convención sugerida: <topico>_<tipo> o <topico>_<numero>.",
     "query": "Texto de la consulta tal como la haría un usuario real.",
     "hash": "Hash del contenido donde está la respuesta (identifica el audio en descargas/). Solo sirve como referencia; la búsqueda se hace sobre el índice completo.",
-    "gold_inicio": "Timestamp en segundos donde empieza la respuesta en el audio original.",
-    "gold_fin": "Timestamp en segundos donde termina la respuesta en el audio original.",
+    "gold_inicio": "(Legacy, opcional) Timestamp en segundos donde empieza la respuesta si el gold es un solo tramo continuo.",
+    "gold_fin": "(Legacy, opcional) Timestamp en segundos donde termina la respuesta si el gold es un solo tramo continuo.",
+    "gold_spans": "(Opcional) Lista de tramos gold cuando la respuesta está repartida en varios bloques no contiguos. Cada item usa {inicio, fin} y puede llevar label descriptivo.",
     "tipo": "(Opcional) Tipo de consulta: 'natural' (pregunta normal), 'keyword' (palabras clave), 'paraphrase' (misma respuesta que otra query pero con vocabulario diferente).",
     "notas": "(Opcional) Descripción de qué cubre el gold span. Útil para validar la anotación."
   },
@@ -70,10 +71,85 @@
       "query_id": "q004_natural",
       "query": "¿Qué diferencias hay entre el ágora griega y el foro romano en términos de espacio público?",
       "hash": "80caf14826bad4e4",
-      "gold_inicio": 876.473,
-      "gold_fin": 1143.398,
+      "gold_spans": [
+        {
+          "inicio": 876.473,
+          "fin": 947.42,
+          "label": "agora_griega_espacio_publico"
+        },
+        {
+          "inicio": 1071.106,
+          "fin": 1143.398,
+          "label": "basilica_romana_autoridad_y_monumentalidad"
+        },
+        {
+          "inicio": 1226.05,
+          "fin": 1264.134,
+          "label": "foro_romano_y_ciudad_compacta"
+        }
+      ],
       "tipo": "natural",
-      "notas": "Gold amplio que abarca tanto la sección del ágora griega como la del foro romano y la basílica. Requiere recuperar al menos dos bloques no contiguos para cubrirlo completamente; mide bien Coverage@k."
+      "notas": "Smoke test de multispan real tomado de correcciones.json. Excluye el bloque intermedio sobre saneamiento romano y obliga a recuperar tres tramos separados: ágora griega, sustitución por la basílica y foro romano. Mide bien hit@k y Coverage@k sobre gold_spans."
+    },
+    {
+      "query_id": "q004_keyword",
+      "query": "ágora griega foro romano espacio público diferencias",
+      "hash": "80caf14826bad4e4",
+      "gold_spans": [
+        {
+          "inicio": 876.473,
+          "fin": 947.42,
+          "label": "agora_griega_espacio_publico"
+        },
+        {
+          "inicio": 1071.106,
+          "fin": 1143.398,
+          "label": "basilica_romana_autoridad_y_monumentalidad"
+        },
+        {
+          "inicio": 1226.05,
+          "fin": 1264.134,
+          "label": "foro_romano_y_ciudad_compacta"
+        }
+      ],
+      "tipo": "keyword",
+      "notas": "Versión telegráfica estilo Google search de q004_natural. Sirve como segundo smoke test de multispan con bajo contexto sintáctico."
+    },
+    {
+      "query_id": "q005_keyword",
+      "query": "medicina psicosomática emociones cuerpo arquitectura salud",
+      "hash": "80caf14826bad4e4",
+      "gold_inicio": 732.089,
+      "gold_fin": 793.693,
+      "tipo": "keyword",
+      "notas": "Cubre la definición de medicina psicosomática y la transición hacia la idea de que la arquitectura influye en la salud de las personas."
+    },
+    {
+      "query_id": "q006_keyword",
+      "query": "Vitruvio salubridad arquitectos vientos sol",
+      "hash": "80caf14826bad4e4",
+      "gold_inicio": 1681.044,
+      "gold_fin": 1728.184,
+      "tipo": "keyword",
+      "notas": "Cubre la referencia a Vitruvio, la salubridad como objetivo principal y la importancia de orientar edificios según vientos y sol."
+    },
+    {
+      "query_id": "q007_keyword",
+      "query": "Le Corbusier pilotes cubierta jardín sol ejercicio humedad",
+      "hash": "80caf14826bad4e4",
+      "gold_inicio": 2231.518,
+      "gold_fin": 2278.369,
+      "tipo": "keyword",
+      "notas": "Cubre la idea de casa saludable en Le Corbusier: ejercicio, sol, separación del suelo húmedo mediante pilotes y uso de la cubierta jardín."
+    },
+    {
+      "query_id": "q008_keyword",
+      "query": "Paimio Aalto ventilación natural ozono terrazas sol",
+      "hash": "80caf14826bad4e4",
+      "gold_inicio": 2552.679,
+      "gold_fin": 2632.203,
+      "tipo": "keyword",
+      "notas": "Cubre el sanatorio de Paimio: mobiliario orientado a la respiración, ausencia de ventilación mecánica y prioridad de ventilación natural, terrazas y sol para la curación."
     }
   ]
 }
