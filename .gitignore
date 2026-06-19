@@ -16,6 +16,8 @@ modelos/
 indice/
 resultados/
 
+eval_dataset/
+
 
 *.egg-info/
 notas.md

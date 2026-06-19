@@ -9,14 +9,20 @@ Por cada consulta se evalúan todas las posiciones del pool no truncado contra l
 gold spans usando solapamiento temporal como proxy de relevancia.
 
 Métricas computadas a k ∈ {5, 10, 20, 40}:
-  - Recall@k    → 1 si algún chunk en top-k tiene overlap >= umbral, si no 0
-  - MRR@k       → 1/rango del primer chunk con overlap >= umbral
+  - Hit@k       → 1 si la UNIÓN de los top-k chunks cubre >= umbral del gold
+  - MRR@k       → 1/rango del primer chunk individual con overlap >= umbral
   - nDCG@k      → DCG/IDCG usando el overlap bruto como grado de relevancia
   - Coverage@k  → fracción del gold span cubierta por la unión temporal de los top-k chunks
+  - EntryHit@k  → fracción de gold spans con al menos un chunk cuyo inicio caiga dentro del span
+                  (± entry_tolerance s antes del inicio). Modela el UX real: el usuario hace
+                  clic y empieza a ver desde ese timestamp, cubriendo el resto secuencialmente.
+  - EntryMRR@k  → 1/rango del primer chunk con inicio dentro de algún gold span (± tolerancia)
 
 Métricas adicionales (diagnóstico):
-  - pool_recall   → Recall calculado sobre el pool completo antes de truncar (techo del pipeline)
-  - pool_coverage → Coverage sobre el pool completo
+  - pool_recall     → 1 si algún chunk individual del pool cubre >= umbral (diagnóstico chunking)
+  - pool_hit        → 1 si la unión del pool completo cubre >= umbral del gold (techo pipeline)
+  - pool_coverage   → cobertura del gold por la unión del pool completo
+  - pool_entry_hit  → fracción de gold spans con buen punto de entrada en el pool completo
 
 Uso:
     python evaluar_ret.py \\
@@ -196,13 +202,50 @@ def _k_needed_for_hit(pool: list[dict[str, Any]], gold_spans: list[GoldSpan], th
     return None
 
 
+def _entry_spans_covered(
+    window: list[dict[str, Any]],
+    gold_spans: list[GoldSpan],
+    tolerance: float,
+) -> float:
+    """Fracción de gold spans para los que algún chunk de window es un buen punto de entrada.
+
+    Un chunk es buen punto de entrada para un span si su inicio cae en
+    [span_inicio - tolerance, span_fin]. Modela el UX real: el usuario hace clic y empieza
+    a ver desde ese timestamp, cubriendo el resto de forma secuencial.
+    """
+    if not gold_spans:
+        return 0.0
+    covered = sum(
+        1 for (g_start, g_end) in gold_spans
+        if any(
+            g_start - tolerance <= float(c.get("inicio") or 0.0) <= g_end
+            for c in window
+        )
+    )
+    return covered / len(gold_spans)
+
+
+def _entry_first_rank(
+    pool: list[dict[str, Any]],
+    gold_spans: list[GoldSpan],
+    tolerance: float,
+) -> int | None:
+    """Rango 1-based del primer chunk que es punto de entrada para algún gold span."""
+    for rank, chunk in enumerate(pool, 1):
+        chunk_inicio = float(chunk.get("inicio") or 0.0)
+        if any(g_start - tolerance <= chunk_inicio <= g_end for (g_start, g_end) in gold_spans):
+            return rank
+    return None
+
+
 def _metrics_at_k(
     pool: list[dict[str, Any]],
     gold_spans: list[GoldSpan],
     k: int,
     threshold: float,
+    entry_tolerance: float,
 ) -> dict[str, float]:
-    """Recall, MRR, nDCG y Coverage para los primeros k chunks del pool."""
+    """Hit, MRR, nDCG, Coverage y métricas de entrada para los primeros k chunks del pool."""
     window = pool[:k]
     overlaps = [
         _overlap(
@@ -212,18 +255,28 @@ def _metrics_at_k(
         )
         for c in window
     ]
-    recall = 1.0 if any(ov >= threshold for ov in overlaps) else 0.0
     mrr = next((1.0 / (i + 1) for i, ov in enumerate(overlaps) if ov >= threshold), 0.0)
     cov = _union_coverage(window, gold_spans)
-    # hit@k: 1 if the UNION of top-k chunks covers >= threshold of the gold span.
-    # Unlike recall (single-chunk), this fires when the answer is spread across chunks.
     hit = 1.0 if cov >= threshold else 0.0
+    entry_hit = _entry_spans_covered(window, gold_spans, entry_tolerance)
+    entry_mrr = next(
+        (
+            1.0 / (i + 1)
+            for i, c in enumerate(window)
+            if any(
+                g_start - entry_tolerance <= float(c.get("inicio") or 0.0) <= g_end
+                for (g_start, g_end) in gold_spans
+            )
+        ),
+        0.0,
+    )
     return {
-        "recall": round(recall, 4),
         "hit": round(hit, 4),
         "mrr": round(mrr, 4),
         "ndcg": round(_ndcg(overlaps), 4),
         "coverage": round(cov, 4),
+        "entry_hit": round(entry_hit, 4),
+        "entry_mrr": round(entry_mrr, 4),
     }
 
 
@@ -232,18 +285,21 @@ def _all_metrics(
     gold_spans: list[GoldSpan],
     eval_ks: tuple[int, ...],
     threshold: float,
+    entry_tolerance: float,
 ) -> dict[str, Any]:
     """Todas las métricas a todos los k-valores más las métricas de techo (pool completo)."""
     out: dict[str, Any] = {"pool_size": len(pool)}
     for k in eval_ks:
-        for metric, val in _metrics_at_k(pool, gold_spans, k, threshold).items():
+        for metric, val in _metrics_at_k(pool, gold_spans, k, threshold, entry_tolerance).items():
             out[f"{metric}_at_{k}"] = val
     # Techo: calculado a k = tamaño real del pool, independientemente de eval_ks.
-    ceil_m = _metrics_at_k(pool, gold_spans, len(pool), threshold)
-    out["pool_recall"] = ceil_m["recall"]
+    ceil_m = _metrics_at_k(pool, gold_spans, len(pool), threshold, entry_tolerance)
+    out["pool_recall"] = 1.0 if _first_hit_rank(pool, gold_spans, threshold) is not None else 0.0
     out["pool_hit"] = ceil_m["hit"]
     out["pool_coverage"] = ceil_m["coverage"]
+    out["pool_entry_hit"] = round(_entry_spans_covered(pool, gold_spans, entry_tolerance), 4)
     out["first_hit_rank"] = _first_hit_rank(pool, gold_spans, threshold)
+    out["entry_first_rank"] = _entry_first_rank(pool, gold_spans, entry_tolerance)
     out["k_needed_for_hit"] = _k_needed_for_hit(pool, gold_spans, threshold)
     return out
 
@@ -253,13 +309,15 @@ def _aggregate(all_query_metrics: list[dict[str, Any]], eval_ks: tuple[int, ...]
     if not all_query_metrics:
         return {}
     keys = (
-        [f"{m}_at_{k}" for k in eval_ks for m in ("recall", "hit", "mrr", "ndcg", "coverage")]
-        + ["pool_recall", "pool_hit", "pool_coverage"]
+        [f"{m}_at_{k}" for k in eval_ks for m in ("hit", "mrr", "ndcg", "coverage", "entry_hit", "entry_mrr")]
+        + ["pool_recall", "pool_hit", "pool_coverage", "pool_entry_hit"]
     )
     result: dict[str, Any] = {}
     for key in keys:
         vals = [q[key] for q in all_query_metrics if key in q]
         result[key] = round(sum(vals) / len(vals), 4) if vals else None
+    sizes = [q["pool_size"] for q in all_query_metrics if "pool_size" in q]
+    result["avg_pool_size"] = round(sum(sizes) / len(sizes), 1) if sizes else None
     return result
 
 
@@ -287,12 +345,12 @@ def _retrieve(
     reranker: str | None,
     peso_semantica: float,
     device: str,
-) -> list[dict[str, Any]]:
-    """Ejecuta la consulta y devuelve el pool completo NO truncado.
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
+    """Ejecuta la consulta y devuelve (pool_reranked, pool_pre_rerank).
 
-    El pool incluye score_rerank si se aplicó reranker, y scores_origen / ranks_origen
-    si se aplicó fusión. Los campos vector y texto_bm25 se eliminan al anotar la salida,
-    no aquí, para mantener el tipo original intacto.
+    pool_pre_rerank es None si no se usó reranker.
+    Ambos pools son NO truncados a top_k.
+    Los campos vector y texto_bm25 se eliminan al anotar la salida, no aquí.
     """
     from recuperador.busqueda import buscar
     from recuperador.fusionado import rrf as _rrf, wrrf as _wrrf
@@ -313,9 +371,12 @@ def _retrieve(
         pool = list(semantica or [])
 
     if reranker:
+        # Preserve pre-rerank order (sorted by RRF/dense score, which stays on each item).
+        pool_pre_rerank = sorted(pool, key=lambda x: float(x.get("score") or 0.0), reverse=True)
         pool = _rerank(query, pool, reranker, device=device)
+        return pool, pool_pre_rerank
 
-    return pool  # intencionalemente NO truncado a top_k
+    return pool, None
 
 
 # ─────────────────────── resumen en consola ──────────────────────────────────
@@ -324,25 +385,46 @@ def _print_summary(summary: dict[str, Any], eval_ks: tuple[int, ...]) -> None:
     n_ok = summary.get("num_ok", 0)
     n_total = summary.get("num_queries", 0)
     n_fail = summary.get("num_failed", 0)
+    pre = summary.get("pre_rerank")
     col = 9
     sep = "─" * (14 + col * len(eval_ks))
     print(f"\n{sep}")
     print(f"  {n_ok}/{n_total} consultas evaluadas  |  {n_fail} error(es)")
     print(f"  {'métrica':<12}  " + "  ".join(f"k={k:<{col - 3}}" for k in eval_ks))
     print(f"  {'─' * 12}  " + "  ".join("─" * (col - 1) for _ in eval_ks))
-    for metric in ("recall", "hit", "mrr", "ndcg", "coverage"):
+    for metric in ("hit", "mrr", "ndcg", "coverage", "entry_hit", "entry_mrr"):
         row = f"  {metric:<12}  "
         for k in eval_ks:
             val = summary.get(f"{metric}_at_{k}")
             row += f"{val:.4f}   " if isinstance(val, float) else f"{'—':>{col - 3}}   "
         print(row)
+    if pre:
+        print(f"\n  {'(pre-rerank)':<12}  " + "  ".join(f"k={k:<{col - 3}}" for k in eval_ks))
+        print(f"  {'─' * 12}  " + "  ".join("─" * (col - 1) for _ in eval_ks))
+        for metric in ("hit", "mrr", "ndcg", "coverage", "entry_hit", "entry_mrr"):
+            row = f"  {metric:<12}  "
+            for k in eval_ks:
+                post_val = summary.get(f"{metric}_at_{k}")
+                pre_val  = pre.get(f"{metric}_at_{k}")
+                if isinstance(post_val, float) and isinstance(pre_val, float):
+                    delta = post_val - pre_val
+                    row += f"{pre_val:.4f}{delta:+.3f} "
+                else:
+                    row += f"{'—':>{col - 3}}   "
+            print(row)
     pr = summary.get("pool_recall")
     ph = summary.get("pool_hit")
     pc = summary.get("pool_coverage")
+    ps = summary.get("avg_pool_size")
+    if ps is not None:
+        print(f"\n  avg_pool_size (chunks antes de truncar a top_k):     {ps:.1f}")
     if pr is not None:
-        print(f"\n  pool_recall   (techo, 1 chunk >= threshold): {pr:.4f}")
+        print(f"  pool_recall   (diagnóstico chunking, 1 chunk >= threshold): {pr:.4f}")
+    peh = summary.get("pool_entry_hit")
     if ph is not None:
         print(f"  pool_hit      (techo, union >= threshold):   {ph:.4f}")
+    if peh is not None:
+        print(f"  pool_entry_hit(techo, fraccion spans con entrada):  {peh:.4f}")
     if pc is not None:
         print(f"  pool_coverage (techo, fraccion cubierta):    {pc:.4f}")
     print(f"{sep}\n")
@@ -370,6 +452,7 @@ def run_eval(args: argparse.Namespace) -> Path:
         "reranker": args.reranker,
         "peso_semantica": args.peso_semantica if args.modo == "wrrf" else None,
         "overlap_threshold": args.overlap_threshold,
+        "entry_tolerance": args.entry_tolerance,
         "eval_ks": list(_EVAL_KS),
         "dataset": str(dataset_path),
         "chunking": {
@@ -386,11 +469,12 @@ def run_eval(args: argparse.Namespace) -> Path:
         f"[INFO] Embedder={args.embedder} | Modo={args.modo} | "
         f"Reranker={args.reranker or '—'} | top_k={args.top_k}"
     )
-    print(f"[INFO] eval_ks={list(_EVAL_KS)} | overlap_threshold={args.overlap_threshold}")
+    print(f"[INFO] eval_ks={list(_EVAL_KS)} | overlap_threshold={args.overlap_threshold} | entry_tolerance={args.entry_tolerance}s")
     print(f"[INFO] Consultas: {len(queries)}")
 
     query_results: list[dict[str, Any]] = []
     ok_metrics: list[dict[str, Any]] = []
+    ok_metrics_pre: list[dict[str, Any]] = []
     n_failed = 0
 
     for i, q in enumerate(queries, 1):
@@ -405,7 +489,7 @@ def run_eval(args: argparse.Namespace) -> Path:
         print(f"  [{i}/{len(queries)}] {qid}: «{query_text[:72]}»")
 
         try:
-            pool = _retrieve(
+            pool, pool_pre = _retrieve(
                 query=query_text,
                 embedder=args.embedder,
                 modo=args.modo,
@@ -427,8 +511,11 @@ def run_eval(args: argparse.Namespace) -> Path:
             })
             continue
 
-        metrics = _all_metrics(pool, gold_spans, _EVAL_KS, args.overlap_threshold)
+        metrics = _all_metrics(pool, gold_spans, _EVAL_KS, args.overlap_threshold, args.entry_tolerance)
+        metrics_pre = _all_metrics(pool_pre, gold_spans, _EVAL_KS, args.overlap_threshold, args.entry_tolerance) if pool_pre is not None else None
         ok_metrics.append(metrics)
+        if metrics_pre is not None:
+            ok_metrics_pre.append(metrics_pre)
 
         result_entry = {
             "query_id": qid,
@@ -436,19 +523,22 @@ def run_eval(args: argparse.Namespace) -> Path:
             "hash": q["hash"],
             "status": "ok",
             "metrics": metrics,
+            **({"metrics_pre_rerank": metrics_pre} if metrics_pre is not None else {}),
             **gold_payload,
         }
         if args.guardar_pool:
             result_entry["pool"] = pool
         query_results.append(result_entry)
 
+        ndcg_delta = f" | Δndcg@10={metrics['ndcg_at_10'] - metrics_pre['ndcg_at_10']:+.3f}" if metrics_pre else ""
         print(
             f"    pool={len(pool)} | pool_recall={metrics['pool_recall']:.2f} | "
-            f"recall@10={metrics['recall_at_10']:.2f} | "
-            f"nDCG@10={metrics['ndcg_at_10']:.3f}"
+            f"entry_hit@10={metrics['entry_hit_at_10']:.2f} | "
+            f"nDCG@10={metrics['ndcg_at_10']:.3f}{ndcg_delta}"
         )
 
     aggregate = _aggregate(ok_metrics, _EVAL_KS)
+    aggregate_pre = _aggregate(ok_metrics_pre, _EVAL_KS) if ok_metrics_pre else None
     ts = datetime.now()
     run_id = args.run_name or _safe_slug(
         f"{args.embedder}-{args.modo}-{args.reranker or 'norerank'}"
@@ -464,6 +554,7 @@ def run_eval(args: argparse.Namespace) -> Path:
             "num_ok": len(ok_metrics),
             "num_failed": n_failed,
             **aggregate,
+            **({"pre_rerank": aggregate_pre} if aggregate_pre is not None else {}),
         },
         "queries": query_results,
     }
@@ -599,7 +690,7 @@ def _interactive_fill(args: argparse.Namespace) -> None:
 
     if args.overlap_threshold is None:
         print()
-        args.overlap_threshold = _ask_float("Umbral de overlap para Recall/MRR (0–1)", default=0.8)
+        args.overlap_threshold = _ask_float("Umbral de overlap para hit@k y mrr@k (0–1)", default=0.5)
 
     # ── Chunking (solo registro, el índice ya fue construido manualmente) ──
     print("\n── Configuración de chunking (solo para registro) ─────────────────────")
@@ -651,7 +742,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-k", type=int, default=None, dest="top_k", help="k final. Default: 10.")
     parser.add_argument("--reranker", default=None, help="Reranker a aplicar. Default: ninguno.")
     parser.add_argument("--peso-semantica", type=float, default=None, dest="peso_semantica", help="Peso semántico para wrrf. Default: 0.7.")
-    parser.add_argument("--overlap-threshold", type=float, default=None, dest="overlap_threshold", help="Umbral overlap para Recall/MRR. Default: 0.8.")
+    parser.add_argument("--overlap-threshold", type=float, default=None, dest="overlap_threshold", help="Umbral overlap para hit@k y mrr@k. Default: 0.5.")
+    parser.add_argument("--entry-tolerance", type=float, default=None, dest="entry_tolerance", help="Tolerancia en segundos antes del inicio del gold para entry_hit/entry_mrr. Default: 30.")
     parser.add_argument("--limit", type=int, default=None, help="Limitar a las primeras N consultas.")
     parser.add_argument("--forzar-cpu", action="store_true", dest="forzar_cpu", help="Forzar CPU.")
     parser.add_argument("--run-name", default=None, dest="run_name", help="Nombre del run.")
@@ -683,7 +775,9 @@ def main() -> None:
     if args.peso_semantica is None:
         args.peso_semantica = 0.7
     if args.overlap_threshold is None:
-        args.overlap_threshold = 0.8
+        args.overlap_threshold = 0.5
+    if args.entry_tolerance is None:
+        args.entry_tolerance = 30.0
     # Chunking defaults — None signals "ask interactively".
     # chunk_estrategia, chunk_max_tokens, etc. stay None until _interactive_fill.
 
