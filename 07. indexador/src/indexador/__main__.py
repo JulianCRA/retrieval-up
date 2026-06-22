@@ -12,7 +12,7 @@ from compartido.utils import cronometrar, cronometro_activo, medir
 
 import importlib
 
-from compartido.bm25 import tokenizar, tokens_a_texto
+from compartido.bm25 import tokenizar_lote, tokens_a_texto
 
 def _parse_tag(valor: str) -> tuple[str, str]:
 	"""Parsea 'CLAVE=VALOR' y aborta si el formato es incorrecto."""
@@ -129,11 +129,12 @@ def procesar(
 	mod = importlib.import_module(f"indexador.{backend}")
 	db = mod.abrir(db_ruta)
 	fallos: list[str] = []
+	tablas_actualizadas: set[str] = set()
 	total = len(hashes)
 	for i, hash_id in enumerate(hashes, 1):
 		print(f"\n[PIPELINE] Indexando recurso {i} de {total}")
 		try:
-			_procesar_hash(
+			nombre_tabla = _procesar_hash(
 				hash_id,
 				db=db,
 				backend_mod=mod,
@@ -142,11 +143,18 @@ def procesar(
 				reclear=reclear,
 				tags=tags,
 			)
+			if nombre_tabla:
+				tablas_actualizadas.add(nombre_tabla)
 		except Exception as e:
 			print(f"[ERROR] Hash '{hash_id}': {e}")
 			fallos.append(hash_id)
 		# Tras el primer hash, no recrear de nuevo en los siguientes.
 		reclear = False
+
+	if hasattr(mod, "finalizar_tabla"):
+		for nombre_tabla in sorted(tablas_actualizadas):
+			print(f"[PIPELINE] Finalizando indices de '{nombre_tabla}'")
+			mod.finalizar_tabla(db, nombre_tabla)
 
 	if fallos:
 		print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
@@ -156,7 +164,7 @@ def procesar(
 
 @cronometrar(etiqueta="tokenizacion_bm25")
 def _tokenizar_fragmentos(fragmentos: list[dict]) -> list[list[str]]:
-	return [tokenizar(f["texto"]) for f in fragmentos]
+	return tokenizar_lote([f["texto"] for f in fragmentos])
 
 
 def _procesar_hash(
@@ -184,7 +192,7 @@ def _procesar_hash(
 		fragmentos = data.get("fragmentos")
 		if not fragmentos:
 			print(f"[AVISO] No hay fragmentos en '{fragmentos_path}' (audio sin voz detectada). Saltando indexación.")
-			return
+			return None
 
 		print(f"[OK] Fragmentos cargados: {len(fragmentos)} (hash={hash_id})")
 
@@ -305,6 +313,7 @@ def _procesar_hash(
 		ju.guardar_registro("status", 7, ruta=(hash_id,))
 
 	print(f"[TIEMPOS] hash={hash_id}: {crono.resumen()}")
+	return nombre_tabla
 
 
 def _cargar_thumbnail(folder) -> bytes | None:

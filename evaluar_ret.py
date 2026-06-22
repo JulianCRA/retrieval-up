@@ -38,9 +38,16 @@ import argparse
 import json
 import math
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+# Ensure UTF-8 output on Windows regardless of console encoding or pipe mode.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = Path(__file__).resolve().parent
 RESULTADOS_DIR = ROOT / "resultados" / "ret_eval"
@@ -381,37 +388,46 @@ def _retrieve(
 
 # ─────────────────────── resumen en consola ──────────────────────────────────
 
-def _print_summary(summary: dict[str, Any], eval_ks: tuple[int, ...]) -> None:
+def _print_summary(summary: dict[str, Any], config: dict[str, Any], eval_ks: tuple[int, ...]) -> None:
     n_ok = summary.get("num_ok", 0)
     n_total = summary.get("num_queries", 0)
     n_fail = summary.get("num_failed", 0)
     pre = summary.get("pre_rerank")
-    col = 9
+    col = 16 if pre else 9
     sep = "─" * (14 + col * len(eval_ks))
     print(f"\n{sep}")
+    print(f"  Embedder: {config.get('embedder')}   |   Reranker: {config.get('reranker') or '—'}")
+    chunk_cfg = config.get("chunking", {})
+    print(f"  Umbral semántico: {chunk_cfg.get('umbral', '—')}   |   min_tokens: {chunk_cfg.get('min_tokens', '—')}")
     print(f"  {n_ok}/{n_total} consultas evaluadas  |  {n_fail} error(es)")
-    print(f"  {'métrica':<12}  " + "  ".join(f"k={k:<{col - 3}}" for k in eval_ks))
-    print(f"  {'─' * 12}  " + "  ".join("─" * (col - 1) for _ in eval_ks))
-    for metric in ("hit", "mrr", "ndcg", "coverage", "entry_hit", "entry_mrr"):
-        row = f"  {metric:<12}  "
-        for k in eval_ks:
-            val = summary.get(f"{metric}_at_{k}")
-            row += f"{val:.4f}   " if isinstance(val, float) else f"{'—':>{col - 3}}   "
-        print(row)
-    if pre:
-        print(f"\n  {'(pre-rerank)':<12}  " + "  ".join(f"k={k:<{col - 3}}" for k in eval_ks))
-        print(f"  {'─' * 12}  " + "  ".join("─" * (col - 1) for _ in eval_ks))
+
+    def _print_table(title: str, data: dict[str, Any], reference: dict[str, Any] | None = None) -> None:
+        print(f"\n  {title:<12}  " + "".join(f"k={k:<{col}}" for k in eval_ks))
+        print(f"  {'─' * 12}  " + "".join("─" * col for _ in eval_ks))
         for metric in ("hit", "mrr", "ndcg", "coverage", "entry_hit", "entry_mrr"):
             row = f"  {metric:<12}  "
             for k in eval_ks:
-                post_val = summary.get(f"{metric}_at_{k}")
-                pre_val  = pre.get(f"{metric}_at_{k}")
-                if isinstance(post_val, float) and isinstance(pre_val, float):
-                    delta = post_val - pre_val
-                    row += f"{pre_val:.4f}{delta:+.3f} "
+                val = data.get(f"{metric}_at_{k}")
+                if isinstance(val, float):
+                    if reference:
+                        ref_val = reference.get(f"{metric}_at_{k}")
+                        if isinstance(ref_val, float):
+                            delta = val - ref_val
+                            txt = f"{val:.4f} ({delta:+.3f})"
+                            row += f"{txt:<{col}}"
+                            continue
+                    txt = f"{val:.4f}"
+                    row += f"{txt:<{col}}"
                 else:
-                    row += f"{'—':>{col - 3}}   "
+                    row += f"{'—':<{col}}"
             print(row)
+
+    if pre:
+        _print_table("(pre-rerank)", pre)
+        _print_table("(reranked)", summary, reference=pre)
+    else:
+        _print_table("métrica", summary)
+
     pr = summary.get("pool_recall")
     ph = summary.get("pool_hit")
     pc = summary.get("pool_coverage")
@@ -563,7 +579,7 @@ def run_eval(args: argparse.Namespace) -> Path:
     out_path = out_root / f"{stamp}_{run_id}.json"
     out_path.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    _print_summary(output["summary"], _EVAL_KS)
+    _print_summary(output["summary"], config, _EVAL_KS)
     print(f"[OK] Guardado en: {out_path}")
     return out_path
 

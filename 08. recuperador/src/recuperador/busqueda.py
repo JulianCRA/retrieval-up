@@ -8,23 +8,34 @@ from compartido.utils import cronometrar, medir
 from compartido.rutas import INDICE_DIR
 
 FACTOR_OVERSAMPLING = 4
+_db = None
+_tablas_disponibles: set[str] | None = None
+_tabla_cache: dict[str, object] = {}
 	
 @cronometrar(etiqueta="apertura_tabla")
 def abrir_tabla(nombre):
-	db = lancedb.connect(INDICE_DIR)
-	tablas = list(db.list_tables().tables)
+	global _db, _tablas_disponibles
+	if nombre in _tabla_cache:
+		return _tabla_cache[nombre]
 
-	print(f"Tablas disponibles en el indice: {tablas}")
-	if nombre not in tablas:
+	if _db is None:
+		_db = lancedb.connect(INDICE_DIR)
+	if _tablas_disponibles is None:
+		tablas = list(_db.list_tables().tables)
+		_tablas_disponibles = set(tablas)
+		print(f"Tablas disponibles en el indice: {tablas}")
+
+	if nombre not in _tablas_disponibles:
 		print(f"Error: No se encontro una tabla para el embedder '{nombre}' en el indice.")
 		exit(1)
 		return None
 
-	tabla = db.open_table(nombre)
+	tabla = _db.open_table(nombre)
 	if tabla.count_rows() == 0:
 		print(f"Error: La tabla para el embedder '{nombre}' esta vacia.")
 		exit(1)
 		return None
+	_tabla_cache[nombre] = tabla
 	
 	return tabla
 
