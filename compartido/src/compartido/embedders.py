@@ -224,10 +224,18 @@ def _parchear_jina_lora() -> None:
 		print(f"[OK] Parche create_position_ids aplicado en: {emb_file}")
 
 
+_st_cache: dict = {}
+
+
 def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	"""Carga el modelo como SentenceTransformer (para boundary detection / vectorizacion).
 	Import perezoso para que el solo conteo de tokens no requiera torch.
+	El modelo queda en caché por (embedder_id, device) para evitar recargas.
 	"""
+	cache_key = (embedder_id, device)
+	if cache_key in _st_cache:
+		return _st_cache[cache_key]
+
 	import logging
 	import sys
 	import warnings
@@ -264,13 +272,17 @@ def cargar_sentence_transformer(embedder_id: str, device: str = "cpu"):
 	with warnings.catch_warnings():
 		warnings.filterwarnings("ignore", message=".*flash_attn.*")
 		try:
-			return SentenceTransformer(spec.hf_id, **kwargs)
-		except RuntimeError:
-			if kwargs.get("device") != "cpu":
-				sys.__stdout__.write(f"[ADVERTENCIA] No se pudo cargar en '{kwargs['device']}', reintentando en CPU...\n")
-				kwargs["device"] = "cpu"
-				return SentenceTransformer(spec.hf_id, **kwargs)
-			raise
+			try:
+				modelo = SentenceTransformer(spec.hf_id, **kwargs)
+			except RuntimeError:
+				if kwargs.get("device") != "cpu":
+					sys.__stdout__.write(f"[ADVERTENCIA] No se pudo cargar en '{kwargs['device']}', reintentando en CPU...\n")
+					kwargs["device"] = "cpu"
+					modelo = SentenceTransformer(spec.hf_id, **kwargs)
+				else:
+					raise
+			_st_cache[(embedder_id, kwargs["device"])] = modelo
+			return modelo
 		finally:
 			sys.stdout = _prev_stdout
 			sys.stderr = _prev_stderr

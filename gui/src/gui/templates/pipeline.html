@@ -562,7 +562,7 @@ semantico — detecta cambios de tema mediante similitud coseno entre oraciones.
           <div id="frag_boundary_row" class="field-row">
             <label class="field-label" for="frag_boundary_embedder">
               Boundary embedder
-              <span class="tip" data-tip="Modelo usado para detectar los bordes semánticos (cambios de tema). Puede diferir del embedder de indexado — por ejemplo, usar un modelo rápido (qwen3-0.6b) para detectar bordes y uno de alta calidad (jina-v3) para indexar. Vacío = mismo que el embedder objetivo.">?</span>
+              <span class="tip" data-tip="Modelo usado para detectar los bordes semánticos (cambios de tema). Puede diferir del embedder de indexado — por ejemplo, usar un modelo rápido (qwen3-0.6b) para detectar bordes y uno de alta calidad (jina-v3) para indexar. Si activas 'todos los embedders', este mismo modelo se reutiliza en cada ejecución de fragmentación. Vacío = mismo que el embedder objetivo.">?</span>
             </label>
             <select id="frag_boundary_embedder" name="frag_boundary_embedder">
               {% for e in embedders %}
@@ -778,7 +778,7 @@ function syncFormVisibility() {
   const todos    = fragTodos.checked;
   const semantic = fragEstrategia.value === "semantico";
   fragEmbRow.style.display      = todos ? "none" : "";
-  fragBoundRow.style.display    = (todos || !semantic) ? "none" : "";
+  fragBoundRow.style.display    = semantic ? "" : "none";
   fragFixed.style.display       = semantic ? "none" : "";
   fragSemantic.style.display    = semantic ? "" : "none";
   asrBatchRow.style.display     = asrModelo.value === "cohere" ? "" : "none";
@@ -1203,7 +1203,9 @@ document.getElementById("pipeline-form").addEventListener("submit", async (e) =>
     frag_overlap:           +document.getElementById("frag_overlap").value,
     frag_umbral:            +document.getElementById("frag_umbral").value,
     frag_min_tokens:        +document.getElementById("frag_min_tokens").value,
-    frag_boundary_embedder: document.getElementById("frag_boundary_embedder").value,
+    frag_boundary_embedder: fragEstrategia.value === "semantico"
+                  ? document.getElementById("frag_boundary_embedder").value
+                  : null,
     vect_batch_size:        +document.getElementById("vect_batch_size").value,
     vect_normalizar:        document.getElementById("vect_normalizar").checked,
     idx_backend:            document.getElementById("idx_backend").value,

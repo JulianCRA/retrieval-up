@@ -26,6 +26,7 @@ EXTRA_STOPWORDS: frozenset[str] = frozenset({
 })
 
 _nlp = None
+_PIPE_BATCH_SIZE = 64
 
 
 def _cargar_spacy():
@@ -47,10 +48,7 @@ def _normalizar(texto: str) -> str:
 	return "".join(c for c in texto if unicodedata.category(c) != "Mn")
 
 
-def tokenizar(texto: str) -> list[str]:
-	"""Devuelve lista de lemmas normalizados para un fragmento."""
-	_cargar_spacy()
-	doc = _nlp(texto)
+def _tokenizar_doc(doc) -> list[str]:
 	tokens: list[str] = []
 	for token in doc:
 		if token.is_stop or token.is_punct or token.is_space:
@@ -62,6 +60,21 @@ def tokenizar(texto: str) -> list[str]:
 			continue
 		tokens.append(normalizado)
 	return tokens
+
+
+def tokenizar_lote(textos: list[str]) -> list[list[str]]:
+	"""Devuelve listas de lemmas normalizados para un lote de textos."""
+	_cargar_spacy()
+	return [
+		_tokenizar_doc(doc)
+		for doc in _nlp.pipe(textos, batch_size=_PIPE_BATCH_SIZE)
+	]
+
+
+def tokenizar(texto: str) -> list[str]:
+	"""Devuelve lista de lemmas normalizados para un fragmento."""
+	_cargar_spacy()
+	return _tokenizar_doc(_nlp(texto))
 
 
 def tokens_a_texto(tokens: list[str]) -> str:
