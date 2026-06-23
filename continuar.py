@@ -7,9 +7,10 @@ Lee el status actual de cada hash en descargas/registros.json y solo ejecuta
 las etapas pendientes.
 
 Uso:
-    python continuar.py                           # todos los hashes del registro
+    python continuar.py                           # completa lo pendiente hasta el final
     python continuar.py --hash abc123 --hash def456
-    python continuar.py --desde asr               # fuerza inicio desde esa etapa
+    python continuar.py --hasta asr               # nivela hasta esa etapa y se detiene
+    python continuar.py --hasta asr --continuar-despues
 """
 
 from __future__ import annotations
@@ -186,6 +187,29 @@ def _quote(s: str) -> str:
     return f'"{s}"' if " " in s else s
 
 
+def planificar_etapas(
+    hashes: list[str],
+    registros: dict,
+    *,
+    hasta: str | None,
+    continuar_despues: bool,
+) -> dict[str, list[str]]:
+    status_objetivo = STATUS_COMPLETADO["indexar"]
+    if hasta and not continuar_despues:
+        status_objetivo = STATUS_COMPLETADO[hasta]
+
+    hashes_por_etapa: dict[str, list[str]] = {}
+    for h in hashes:
+        status_actual = registros[h].get("status", 0)
+        if status_actual < STATUS_REQUERIDO["procesar"]:
+            continue
+        for etapa in ETAPAS_ORDEN:
+            completado = STATUS_COMPLETADO[etapa]
+            if status_actual < completado <= status_objetivo:
+                hashes_por_etapa.setdefault(etapa, []).append(h)
+    return hashes_por_etapa
+
+
 # ─── Configuración de etapas ─────────────────────────────────────────────────
 
 def cfg_procesador() -> dict:
@@ -319,10 +343,18 @@ def main() -> int:
         help="Hash a continuar. Se puede repetir. Si se omite, usa todos los del registro.",
     )
     parser.add_argument(
+        "--hasta",
         "--desde",
         choices=ETAPAS_ORDEN,
         default=None,
-        help="Forzar inicio desde esta etapa (ignora el status actual).",
+        dest="hasta",
+        help="Nivelar hashes hasta esta etapa. --desde se mantiene como alias.",
+    )
+    parser.add_argument(
+        "--continuar-despues",
+        action="store_true",
+        dest="continuar_despues",
+        help="Después de nivelar hasta --hasta, continuar con las etapas siguientes.",
     )
     parser.add_argument(
         "--forzar-cpu",
@@ -331,6 +363,9 @@ def main() -> int:
         help="Pasar --forzar-cpu a los módulos que lo soportan.",
     )
     args = parser.parse_args()
+
+    if args.continuar_despues and not args.hasta:
+        parser.error("--continuar-despues requiere --hasta/--desde")
 
     print("\n╔══════════════════════════════════════════════════════════════════════╗")
     print("║  continuar.py — retoma el pipeline desde el último status conocido  ║")
@@ -367,50 +402,45 @@ def main() -> int:
             titulo = registros[h].get("title", "")
             print(f"      · {h}  {titulo}")
 
-    # ── Elegir nivel de inicio ────────────────────────────────────────────
-    if args.desde:
-        desde_elegido = args.desde
+    # ── Elegir etapa objetivo ─────────────────────────────────────────────
+    if args.hasta:
+        hasta_elegida = args.hasta
+        continuar_despues = args.continuar_despues
     else:
-        _print_seccion("¿Desde qué etapa quieres continuar?")
-        print("  · auto = determinar automáticamente según el status de cada hash")
+        _print_seccion("¿Qué etapa quieres nivelar?")
+        print("  · auto = completar hasta indexar según el status actual")
         for i, etapa in enumerate(ETAPAS_ORDEN, 1):
             print(f"  · {i}. {etapa}")
         opciones_nivel = ["auto"] + ETAPAS_ORDEN
         resp_nivel = preguntar(
-            "Etapa de inicio",
+            "Etapa objetivo",
             default="auto",
             opciones=opciones_nivel,
         )
-        desde_elegido = None if resp_nivel == "auto" else resp_nivel
+        hasta_elegida = None if resp_nivel == "auto" else resp_nivel
+        continuar_despues = False
+        if hasta_elegida:
+            continuar_despues = preguntar_bool(
+                "¿Continuar con las etapas siguientes después de nivelar esta?",
+                default=False,
+                descripcion=(
+                    "Si respondes no, solo deja todos los hashes parejos hasta esta etapa."
+                ),
+            )
 
     # ── Determinar qué etapas son necesarias ─────────────────────────────
-    if desde_elegido:
-        # El usuario fuerza un punto de partida: todas las etapas desde ahí.
-        # Cada etapa filtra por su propio status requerido según el estado actual.
-        idx_desde = ETAPAS_ORDEN.index(desde_elegido)
-        etapas_necesarias = ETAPAS_ORDEN[idx_desde:]
-        hashes_por_etapa: dict[str, list[str]] = {}
-        for etapa in etapas_necesarias:
-            req = STATUS_REQUERIDO[etapa]
-            elegibles = [h for h in hashes_pedidos if registros[h].get("status", 0) >= req]
-            if elegibles:
-                hashes_por_etapa[etapa] = elegibles
-    else:
-        # Modo normal: cada hash solo ejecuta las etapas que aún le faltan
-        hashes_por_etapa = {}
-        for etapa in ETAPAS_ORDEN:
-            completado = STATUS_COMPLETADO[etapa]
-            req = STATUS_REQUERIDO[etapa]
-            pendientes = [
-                h for h in hashes_pedidos
-                if registros[h].get("status", 0) >= req
-                and registros[h].get("status", 0) < completado
-            ]
-            if pendientes:
-                hashes_por_etapa[etapa] = pendientes
+    hashes_por_etapa = planificar_etapas(
+        hashes_pedidos,
+        registros,
+        hasta=hasta_elegida,
+        continuar_despues=continuar_despues,
+    )
 
     if not hashes_por_etapa:
-        print("\n  Todos los hashes ya tienen status 7 (completo). Nada que hacer.")
+        if hasta_elegida and not continuar_despues:
+            print("\n  Todos los hashes ya alcanzaron esa etapa. Nada que hacer.")
+        else:
+            print("\n  Todos los hashes ya están completos. Nada que hacer.")
         return 0
 
     print(f"\n  Etapas a ejecutar:")
@@ -431,13 +461,6 @@ def main() -> int:
     c_frag  = cfg_fragmentador() if "frag"     in hashes_por_etapa else None
     c_vect  = cfg_vectorizador() if "vect"     in hashes_por_etapa else None
     c_idx   = cfg_indexador()    if "indexar"  in hashes_por_etapa else None
-
-    # Si frag fue configurado, también necesitamos vect e indexar aunque no
-    # estuvieran en hashes_por_etapa (frag/vect/indexar son una unidad por embedder).
-    if c_frag and c_vect is None:
-        c_vect = cfg_vectorizador()
-    if c_frag and c_idx is None:
-        c_idx = cfg_indexador()
 
     # Si solo se necesitan vect/indexar (frag ya fue hecho), pedir el embedder.
     embedder_solo: str | None = None
