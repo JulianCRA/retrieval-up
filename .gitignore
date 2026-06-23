@@ -16,9 +16,18 @@ modelos/
 indice/
 resultados/
 
+eval_dataset/
+dataset.csv
+[0-9][0-9]*.json
+
+
+
 
 *.egg-info/
 notas.md
 reconstruir.py
 entrypoint.py
 instalar.py
+continuar.py
+expunge.py
+*.log
