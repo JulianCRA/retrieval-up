@@ -188,6 +188,37 @@ def agrupar_consultas(
 		else:
 			grupos.setdefault(int(lab), []).append(idx)
 
+	# Rescate léxico: puntos de ruido que comparten vocabulario significativo
+	# con miembros de un grupo se reasignan a ese grupo. Esto corrige el caso
+	# en que jina-v3 codifica el "estilo" de la pregunta por encima del tema
+	# (ej. "rutas IP mascara" tiene baja similitud coseno con el cluster de
+	# encaminamiento pero solapamiento léxico alto con "rutas se ordenan por
+	# especificidad mascara 27 26 25"). Umbral 0.33: al menos 1/3 de las
+	# palabras del punto más corto deben coincidir.
+	_WORD_OVERLAP_MIN = 0.33
+	ruido_rescatado: list[int] = []
+	ruido_final: list[int] = []
+	for i in ruido:
+		palabras_i = set(consultas[i]["query"].lower().split())
+		mejor_lab: int | None = None
+		mejor_overlap = 0.0
+		for lab, indices in grupos.items():
+			for j in indices:
+				palabras_j = set(consultas[j]["query"].lower().split())
+				denom = min(len(palabras_i), len(palabras_j))
+				if denom == 0:
+					continue
+				overlap = len(palabras_i & palabras_j) / denom
+				if overlap > mejor_overlap:
+					mejor_overlap = overlap
+					mejor_lab = lab
+		if mejor_overlap >= _WORD_OVERLAP_MIN and mejor_lab is not None:
+			grupos[mejor_lab].append(i)
+			ruido_rescatado.append(i)
+		else:
+			ruido_final.append(i)
+	ruido = ruido_final
+
 	grupos_salida = []
 	for lab, indices in grupos.items():
 		textos = [consultas[i]["query"] for i in indices]
