@@ -170,6 +170,7 @@ def agrupar_consultas(
 		min_cluster_size=min_cluster_size,
 		min_samples=min_samples,
 		metric="euclidean",  # sobre vectores L2-normalizados ~ distancia coseno
+		cluster_selection_method="leaf",  # clusters más compactos; 'eom' fusiona grupos distintos en datasets pequeños
 	)
 	etiquetas = clusterer.fit_predict(matriz.astype(np.float64))
 	# Puntos con probabilidad de pertenencia baja se tratan como ruido
