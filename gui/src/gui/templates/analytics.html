@@ -169,7 +169,8 @@
 <div class="params-inline">
   <div class="field-row">
     <label style="font-size:.82rem;">Embedder (filtro)</label>
-    <select id="act-embedder" style="min-width:10rem;">
+    <select id="act-embedder" style="min-width:10rem;"
+            title="Filtra el análisis para mostrar solo búsquedas realizadas con este modelo de embedding. 'Todos' incluye todas las búsquedas independientemente del embedder usado.">
       <option value="">Todos</option>
       <option value="qwen3-0.6b">qwen3-0.6b</option>
       <option value="bge-m3">bge-m3</option>
@@ -180,12 +181,14 @@
   </div>
   <div class="field-row">
     <label style="font-size:.82rem;">Top N</label>
-    <input type="number" id="act-top-n" value="20" min="1" max="100" style="width:5rem;" />
+    <input type="number" id="act-top-n" value="20" min="1" max="100" style="width:5rem;"
+           title="Número máximo de vídeos a mostrar en cada tabla." />
   </div>
   <div class="field-row">
     <label style="font-size:.82rem;">Rank máx (encontrados)</label>
     <input type="number" id="act-rank-max" value="" min="1" max="50" placeholder="todos"
-           style="width:6rem;" />
+           style="width:6rem;"
+           title="Solo cuenta apariciones donde el vídeo apareció en las primeras N posiciones del ranking. Útil para medir presencia en el 'top 3' en lugar del top-K completo. Deja vacío para contar todas las posiciones." />
   </div>
   <div class="field-row" style="padding-bottom:.15rem;">
     <button id="act-load-btn" onclick="loadActividadTab()" style="margin:0;">Cargar</button>
@@ -230,7 +233,8 @@
 <div class="params-inline">
   <div class="field-row">
     <label style="font-size:.82rem;">Embedder</label>
-    <select id="grp-embedder" style="min-width:10rem;">
+    <select id="grp-embedder" style="min-width:10rem;"
+            title="Modelo de embedding para codificar las consultas antes de agrupar. 'Auto' usa el embedder más frecuente en el registro. Si las búsquedas se hicieron con un embedder específico, elige ese para mejores grupos.">
       <option value="">Auto (más usado)</option>
       <option value="qwen3-0.6b">qwen3-0.6b</option>
       <option value="bge-m3">bge-m3</option>
@@ -241,15 +245,18 @@
   </div>
   <div class="field-row">
     <label style="font-size:.82rem;">Tamaño mín. grupo</label>
-    <input type="number" id="grp-min-cluster" value="3" min="2" max="20" style="width:5rem;" />
+    <input type="number" id="grp-min-cluster" value="3" min="2" max="20" style="width:5rem;"
+           title="Número mínimo de consultas para que HDBSCAN forme un grupo. Valores más altos generan menos grupos pero más sólidos; valores más bajos capturan temas con pocas búsquedas pero pueden crear grupos espurios." />
   </div>
   <div class="field-row">
     <label style="font-size:.82rem;">Términos / grupo</label>
-    <input type="number" id="grp-top-terms" value="5" min="1" max="15" style="width:5rem;" />
+    <input type="number" id="grp-top-terms" value="5" min="1" max="15" style="width:5rem;"
+           title="Cuántos términos representativos extrae KeyBERT por grupo. Estos términos se usan como etiqueta interpretable del grupo." />
   </div>
   <div class="field-row" style="padding-bottom:.15rem;display:flex;gap:.5rem;align-items:flex-end;">
     <button id="grp-btn" onclick="runGrupos()" style="margin:0;">Calcular grupos</button>
-    <label style="font-size:.82rem;display:flex;align-items:center;gap:.3rem;margin:0;">
+    <label style="font-size:.82rem;display:flex;align-items:center;gap:.3rem;margin:0;"
+           title="Usa la CPU aunque haya GPU disponible. Útil si la GPU tiene poca VRAM o está ocupada con otra tarea.">
       <input type="checkbox" id="grp-cpu" role="switch" style="margin:0;" />
       Forzar CPU
     </label>
@@ -484,9 +491,7 @@ async function runGrupos() {
   }
 }
 
-let _grpChipN = 0;
 function streamGrupos(jobId) {
-  _grpChipN = 0;
   return new Promise((resolve, reject) => {
     const sse = new EventSource(`/api/analytics/grupos/stream/${encodeURIComponent(jobId)}`);
     sse.onmessage = (e) => {
@@ -495,20 +500,22 @@ function streamGrupos(jobId) {
 
       switch(msg.type) {
         case 'phase_start': {
-          const id = 'grp-' + (_grpChipN++);
-          msg._chip_id = id;
-          // store on sse object for phase_done
-          if (!sse._chips) sse._chips = {};
-          sse._chips[msg.label] = id;
+          const id = 'grp-ph-' + msg.phase;
           addChip('grp-chips', id, msg.label);
           document.getElementById('grp-hint').textContent = msg.label;
           break;
         }
         case 'phase_done': {
-          const id = sse._chips?.[msg.label];
-          const extra = msg.elapsed ? msg.elapsed + 's' : '';
-          const detail = msg.n_grupos != null ? `${msg.n_grupos} grupos` : (msg.n_consultas != null ? `${msg.n_consultas} consultas` : '');
-          doneChip(id, msg.label, [extra, detail].filter(Boolean).join(' · '));
+          // Mark the last still-running chip as done (robust to phase key mismatch).
+          const running = document.querySelectorAll('#grp-chips .ph-chip.running');
+          if (running.length) {
+            const chip = running[running.length - 1];
+            chip.className = 'ph-chip done';
+            const extra = msg.elapsed ? msg.elapsed + 's' : '';
+            const detail = msg.n_grupos != null ? `${msg.n_grupos} grupo${msg.n_grupos !== 1 ? 's' : ''}` : (msg.n_consultas != null ? `${msg.n_consultas} consultas` : '');
+            const suffix = [extra, detail].filter(Boolean).join(' · ');
+            chip.innerHTML = `✓ ${esc(msg.label)}` + (suffix ? ` <span style="opacity:.65;font-size:.7rem;">${esc(suffix)}</span>` : '');
+          }
           document.getElementById('grp-hint').textContent = msg.label + ' ✓';
           break;
         }

@@ -1016,9 +1016,9 @@ def _run_grupos(params: dict, sq: queue.Queue) -> None:
             forzado={"device": "cpu"} if params.get("forzar_cpu") else None
         )["device"]
 
-        emit(type="phase_start", label="Cargando registro de actividad…")
+        emit(type="phase_start", phase="load", label="Cargando registro de actividad…")
         actividad = cargar_actividad().filtrar_embedder(params.get("embedder"))
-        emit(type="phase_done", label="Registro cargado",
+        emit(type="phase_done", phase="load", label="Registro cargado",
              n_consultas=actividad.num_busquedas)
 
         if actividad.num_busquedas == 0:
@@ -1027,7 +1027,7 @@ def _run_grupos(params: dict, sq: queue.Queue) -> None:
                                        "embedder": None})
             return
 
-        emit(type="phase_start", label="Vectorizando y agrupando consultas…")
+        emit(type="phase_start", phase="cluster", label="Vectorizando y agrupando consultas…")
         t0 = _time.perf_counter()
         resultado = agrupar_consultas(
             actividad,
@@ -1038,7 +1038,7 @@ def _run_grupos(params: dict, sq: queue.Queue) -> None:
             top_terminos=int(params.get("top_terminos", 5)),
         )
         elapsed = round(_time.perf_counter() - t0, 2)
-        emit(type="phase_done", label="Agrupación completada",
+        emit(type="phase_done", phase="cluster", label="Agrupación completada",
              elapsed=elapsed, n_grupos=resultado["num_grupos"])
         emit(type="result", data=resultado)
 

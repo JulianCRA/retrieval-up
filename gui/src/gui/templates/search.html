@@ -450,9 +450,9 @@ function renderResults() {
     /* ── thumbnail ── */
     const thumb = item.has_thumbnail
       ? `<div class="result-thumb-wrap"><img class="result-thumb" src="/thumbnail/${esc(item.hash)}" alt="" loading="lazy"
-           style="cursor:pointer;" onclick="recordSeleccion(${rank}, ${JSON.stringify(item.hash)}, ${item.chunk_idx ?? 'null'})" /></div>`
+           style="cursor:pointer;" onclick="recordSeleccion(${rank}, '${item.hash}', ${item.chunk_idx ?? 'null'})" /></div>`
       : `<div class="result-thumb-wrap"><div class="result-thumb-placeholder" aria-hidden="true" style="cursor:pointer;"
-           onclick="recordSeleccion(${rank}, ${JSON.stringify(item.hash)}, ${item.chunk_idx ?? 'null'})">▶</div></div>`;
+           onclick="recordSeleccion(${rank}, '${item.hash}', ${item.chunk_idx ?? 'null'})">▶</div></div>`;
 
     /* ── segments or fallback text ── */
     let contentHtml = '';
@@ -461,7 +461,7 @@ function renderResults() {
       const inlines = segs.map(seg => {
         const url = ytUrl(item.uri, seg.inicio);
         const txt = esc(seg.texto ?? '');
-        const onClick = `onclick="recordSeleccion(${rank}, ${JSON.stringify(item.hash)}, ${item.chunk_idx ?? 'null'})"`;
+        const onClick = `onclick="recordSeleccion(${rank}, '${item.hash}', ${item.chunk_idx ?? 'null'})"`;
         return url
           ? `<a class="seg-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer" ${onClick}>${txt}</a>`
           : txt;
