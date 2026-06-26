@@ -115,7 +115,7 @@ def _etiquetas_keybert(textos: list[str], device: str, top_n: int, embedder: str
 	documento = ". ".join(textos)
 	pares = kw.extract_keywords(
 		documento,
-		keyphrase_ngram_range=(1, 2),
+		keyphrase_ngram_range=(1, 3),
 		stop_words=None,
 		top_n=top_n,
 	)
@@ -172,11 +172,17 @@ def agrupar_consultas(
 		metric="euclidean",  # sobre vectores L2-normalizados ~ distancia coseno
 	)
 	etiquetas = clusterer.fit_predict(matriz.astype(np.float64))
+	# Puntos con probabilidad de pertenencia baja se tratan como ruido
+	# incluso si HDBSCAN les asignó una etiqueta de grupo.
+	# Con datasets pequeños HDBSCAN puede absorber puntos periféricos con
+	# confianza moderada (~0.75); un umbral de 0.80 los devuelve a ruido.
+	probs = getattr(clusterer, "probabilities_", None)
+	_PROB_MIN = 0.80  # < 80% de confianza → ruido
 
 	grupos: dict[int, list[int]] = {}
 	ruido: list[int] = []
 	for idx, lab in enumerate(etiquetas):
-		if lab == -1:
+		if lab == -1 or (probs is not None and probs[idx] < _PROB_MIN):
 			ruido.append(idx)
 		else:
 			grupos.setdefault(int(lab), []).append(idx)
