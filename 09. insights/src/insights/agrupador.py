@@ -17,7 +17,7 @@ import numpy as np
 
 from compartido.embedders import cargar_sentence_transformer, get_spec, listar_ids
 
-from insights.registro import Actividad, decodificar_vector
+from insights.registro import Actividad
 
 
 def _normalizar(matriz: np.ndarray) -> np.ndarray:
@@ -28,14 +28,14 @@ def _normalizar(matriz: np.ndarray) -> np.ndarray:
 
 
 def _consultas_unicas(actividad: Actividad) -> list[dict]:
-	"""Consultas distintas con su frecuencia, vector almacenado y selecciones.
+	"""Consultas distintas (por texto) con frecuencia y selecciones acumuladas.
 
-	Se agrupa por (texto, embedder): la misma pregunta buscada con dos embedders
-	distintos se trata como dos entradas independientes, ya que sus vectores
-	viven en espacios diferentes. En modo Auto, esto significa que verás todas
-	las combinaciones (query × embedder) del historial.
+	Se deduplican por texto: la misma pregunta buscada con distintos embedders
+	cuenta como una sola entrada. El vector almacenado se ignora porque fue
+	codificado con tarea 'retrieval.query' (optimizada para recuperacion, no
+	para similitud entre consultas). Se re-codificara con el modelo elegido.
 	"""
-	por_texto: dict[tuple[str, str], dict] = {}
+	por_texto: dict[str, dict] = {}
 	sel_por_busqueda: dict[int, int] = {}
 	for s in actividad.selecciones:
 		sel_por_busqueda[s["busqueda_id"]] = sel_por_busqueda.get(s["busqueda_id"], 0) + 1
@@ -44,21 +44,17 @@ def _consultas_unicas(actividad: Actividad) -> list[dict]:
 		query = (b.get("query") or "").strip()
 		if not query:
 			continue
-		clave = (query, b.get("embedder") or "")
-		entrada = por_texto.get(clave)
+		entrada = por_texto.get(query)
 		if entrada is None:
 			entrada = {
 				"query": query,
-				"embedder": b.get("embedder") or "",
 				"frecuencia": 0,
 				"selecciones": 0,
-				"vector": decodificar_vector(b.get("query_vector")),
+				"vector": None,  # always re-encode for clustering
 			}
-			por_texto[clave] = entrada
+			por_texto[query] = entrada
 		entrada["frecuencia"] += 1
 		entrada["selecciones"] += sel_por_busqueda.get(b["id"], 0)
-		if entrada["vector"] is None:
-			entrada["vector"] = decodificar_vector(b.get("query_vector"))
 
 	return list(por_texto.values())
 
@@ -92,10 +88,10 @@ def _matriz_embeddings(consultas: list[dict], embedder: str, device: str) -> np.
 		for i in faltan_idx:
 			q = consultas[i]["query"]
 			textos.append(spec.prefijo_query + q if spec.prefijo_query else q)
-		kwargs = {"normalize_embeddings": True}
-		if spec.tarea_query:
-			kwargs["task"] = spec.tarea_query
-		nuevos = modelo.encode(textos, **kwargs)
+		# No usar tarea_query: esa tarea optimiza query↔passage (retrieval),
+		# lo que maximiza las distancias entre queries. Para clustering
+		# necesitamos similitud query↔query, es decir, encodificacion plana.
+		nuevos = modelo.encode(textos, normalize_embeddings=True)
 		nuevos = np.asarray(nuevos, dtype=np.float32)
 		for pos, i in enumerate(faltan_idx):
 			consultas[i]["vector"] = nuevos[pos]
@@ -181,12 +177,6 @@ def agrupar_consultas(
 	)
 	etiquetas = clusterer.fit_predict(matriz.astype(np.float64))
 	probs = getattr(clusterer, "probabilities_", None)
-	import pathlib, json as _json
-	_dbg = {"n": len(consultas), "min_cluster_size": min_cluster_size, "min_samples": min_samples,
-	        "method": cluster_selection_method, "etiquetas": etiquetas.tolist(),
-	        "probs": probs.tolist() if probs is not None else None,
-	        "mat_shape": list(matriz.shape)}
-	pathlib.Path("_hdbscan_debug.json").write_text(_json.dumps(_dbg, indent=2))
 	# Puntos con probabilidad de pertenencia por debajo del umbral se tratan
 	# como ruido incluso si HDBSCAN les asignó una etiqueta de grupo.
 	_PROB_MIN = prob_min
