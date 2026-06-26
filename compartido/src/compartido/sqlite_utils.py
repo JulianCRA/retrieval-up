@@ -31,10 +31,24 @@ resultados
     score_bm25   REAL   – score BM25 original   (NULL si modo denso)
     rank_denso   INTEGER
     rank_bm25    INTEGER
+
+selecciones
+    id           INTEGER PK AUTOINCREMENT
+    busqueda_id  INTEGER FK → busquedas.id
+    resultado_id INTEGER FK → resultados.id (NULL si solo se conoce el video)
+    rank         INTEGER  – posición del resultado elegido en el ranking mostrado
+    video_id     TEXT     – hash del recurso seleccionado
+    chunk_idx    INTEGER
+    timestamp    TEXT     – ISO-8601 del momento de la selección
+
+La tabla *selecciones* registra la interacción posterior a la búsqueda (el
+resultado que el usuario usó como punto de acceso al contenido). Es la fuente
+de la salida «vídeos más seleccionados» del módulo de analítica docente.
 """
 
 import json
 import sqlite3
+from datetime import datetime
 
 from compartido.rutas import RESULTADOS_DB
 
@@ -83,6 +97,16 @@ def crear_tablas() -> None:
                 score_bm25   REAL,
                 rank_denso   INTEGER,
                 rank_bm25    INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS selecciones (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                busqueda_id  INTEGER NOT NULL REFERENCES busquedas(id) ON DELETE CASCADE,
+                resultado_id INTEGER REFERENCES resultados(id) ON DELETE SET NULL,
+                rank         INTEGER,
+                video_id     TEXT,
+                chunk_idx    INTEGER,
+                timestamp    TEXT
             );
         """)
         conn.commit()
@@ -217,11 +241,93 @@ def actualizar_query_bm25(busqueda_id: int, tokens: str) -> None:
         conn.close()
 
 
+def registrar_seleccion(
+    busqueda_id: int,
+    video_id: str | None = None,
+    chunk_idx: int | None = None,
+    rank: int | None = None,
+    resultado_id: int | None = None,
+    timestamp: str | None = None,
+) -> int:
+    """Registra la interacción posterior a una búsqueda (resultado elegido).
+
+    Vincula el resultado seleccionado por el usuario con la búsqueda que lo
+    produjo. Si solo se conoce el *rank* del resultado mostrado, se resuelven
+    *resultado_id*, *video_id* y *chunk_idx* a partir de la tabla *resultados*.
+
+    Devuelve el id de la fila insertada en *selecciones*.
+    """
+    crear_tablas()
+    if timestamp is None:
+        timestamp = datetime.now().isoformat(timespec="seconds")
+
+    conn = _conectar()
+    try:
+        # Completar datos faltantes desde la fila de resultados correspondiente.
+        if resultado_id is None and rank is not None:
+            fila = conn.execute(
+                "SELECT id, video_id, chunk_idx FROM resultados "
+                "WHERE busqueda_id = ? AND rank = ?",
+                (busqueda_id, rank),
+            ).fetchone()
+            if fila is not None:
+                resultado_id = fila["id"]
+                video_id = video_id or fila["video_id"]
+                chunk_idx = chunk_idx if chunk_idx is not None else fila["chunk_idx"]
+
+        cur = conn.execute(
+            """
+            INSERT INTO selecciones
+                (busqueda_id, resultado_id, rank, video_id, chunk_idx, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (busqueda_id, resultado_id, rank, video_id, chunk_idx, timestamp),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def leer_busquedas() -> list[dict]:
+    """Devuelve todas las búsquedas registradas (incluido *query_vector* en bytes)."""
+    crear_tablas()
+    conn = _conectar()
+    try:
+        filas = conn.execute("SELECT * FROM busquedas ORDER BY id").fetchall()
+        return [dict(f) for f in filas]
+    finally:
+        conn.close()
+
+
+def leer_resultados() -> list[dict]:
+    """Devuelve todas las filas de resultados mostrados."""
+    crear_tablas()
+    conn = _conectar()
+    try:
+        filas = conn.execute("SELECT * FROM resultados ORDER BY busqueda_id, rank").fetchall()
+        return [dict(f) for f in filas]
+    finally:
+        conn.close()
+
+
+def leer_selecciones() -> list[dict]:
+    """Devuelve todas las selecciones registradas."""
+    crear_tablas()
+    conn = _conectar()
+    try:
+        filas = conn.execute("SELECT * FROM selecciones ORDER BY id").fetchall()
+        return [dict(f) for f in filas]
+    finally:
+        conn.close()
+
+
 def reset_database() -> None:
     """Elimina y recrea las tablas, dejando la DB vacía."""
     conn = _conectar()
     try:
         conn.executescript("""
+            DROP TABLE IF EXISTS selecciones;
             DROP TABLE IF EXISTS resultados;
             DROP TABLE IF EXISTS busquedas;
         """)
