@@ -30,7 +30,10 @@ def _normalizar(matriz: np.ndarray) -> np.ndarray:
 def _consultas_unicas(actividad: Actividad) -> list[dict]:
 	"""Consultas distintas con su frecuencia, vector almacenado y selecciones.
 
-	Se agrupa por (texto, embedder) para no contar dos veces la misma consulta.
+	Se agrupa por (texto, embedder): la misma pregunta buscada con dos embedders
+	distintos se trata como dos entradas independientes, ya que sus vectores
+	viven en espacios diferentes. En modo Auto, esto significa que verás todas
+	las combinaciones (query × embedder) del historial.
 	"""
 	por_texto: dict[tuple[str, str], dict] = {}
 	sel_por_busqueda: dict[int, int] = {}
@@ -129,6 +132,10 @@ def agrupar_consultas(
 	min_cluster_size: int = 3,
 	min_samples: int | None = None,
 	top_terminos: int = 5,
+	cluster_selection_method: str = "leaf",
+	prob_min: float = 0.80,
+	rescate_lexico: bool = True,
+	word_overlap_min: float = 0.33,
 ) -> dict:
 	"""Agrupa consultas similares con HDBSCAN y las etiqueta con KeyBERT.
 
@@ -170,15 +177,13 @@ def agrupar_consultas(
 		min_cluster_size=min_cluster_size,
 		min_samples=min_samples,
 		metric="euclidean",  # sobre vectores L2-normalizados ~ distancia coseno
-		cluster_selection_method="leaf",  # clusters más compactos; 'eom' fusiona grupos distintos en datasets pequeños
+		cluster_selection_method=cluster_selection_method,
 	)
 	etiquetas = clusterer.fit_predict(matriz.astype(np.float64))
-	# Puntos con probabilidad de pertenencia baja se tratan como ruido
-	# incluso si HDBSCAN les asignó una etiqueta de grupo.
-	# Con datasets pequeños HDBSCAN puede absorber puntos periféricos con
-	# confianza moderada (~0.75); un umbral de 0.80 los devuelve a ruido.
+	# Puntos con probabilidad de pertenencia por debajo del umbral se tratan
+	# como ruido incluso si HDBSCAN les asignó una etiqueta de grupo.
 	probs = getattr(clusterer, "probabilities_", None)
-	_PROB_MIN = 0.80  # < 80% de confianza → ruido
+	_PROB_MIN = prob_min
 
 	grupos: dict[int, list[int]] = {}
 	ruido: list[int] = []
@@ -188,35 +193,32 @@ def agrupar_consultas(
 		else:
 			grupos.setdefault(int(lab), []).append(idx)
 
-	# Rescate léxico: puntos de ruido que comparten vocabulario significativo
-	# con miembros de un grupo se reasignan a ese grupo. Esto corrige el caso
-	# en que jina-v3 codifica el "estilo" de la pregunta por encima del tema
-	# (ej. "rutas IP mascara" tiene baja similitud coseno con el cluster de
-	# encaminamiento pero solapamiento léxico alto con "rutas se ordenan por
-	# especificidad mascara 27 26 25"). Umbral 0.33: al menos 1/3 de las
-	# palabras del punto más corto deben coincidir.
-	_WORD_OVERLAP_MIN = 0.33
-	ruido_rescatado: list[int] = []
+	# Rescate léxico (opcional): puntos de ruido que comparten vocabulario
+	# significativo con miembros de un grupo se reasignan a ese grupo.
+	# Corrige el caso en que el embedder codifica el estilo de la pregunta
+	# por encima del tema léxico. Umbral configurable (default 0.33).
 	ruido_final: list[int] = []
-	for i in ruido:
-		palabras_i = set(consultas[i]["query"].lower().split())
-		mejor_lab: int | None = None
-		mejor_overlap = 0.0
-		for lab, indices in grupos.items():
-			for j in indices:
-				palabras_j = set(consultas[j]["query"].lower().split())
-				denom = min(len(palabras_i), len(palabras_j))
-				if denom == 0:
-					continue
-				overlap = len(palabras_i & palabras_j) / denom
-				if overlap > mejor_overlap:
-					mejor_overlap = overlap
-					mejor_lab = lab
-		if mejor_overlap >= _WORD_OVERLAP_MIN and mejor_lab is not None:
-			grupos[mejor_lab].append(i)
-			ruido_rescatado.append(i)
-		else:
-			ruido_final.append(i)
+	if not rescate_lexico or not grupos:
+		ruido_final = list(ruido)
+	else:
+		for i in ruido:
+			palabras_i = set(consultas[i]["query"].lower().split())
+			mejor_lab: int | None = None
+			mejor_overlap = 0.0
+			for lab, indices in grupos.items():
+				for j in indices:
+					palabras_j = set(consultas[j]["query"].lower().split())
+					denom = min(len(palabras_i), len(palabras_j))
+					if denom == 0:
+						continue
+					overlap = len(palabras_i & palabras_j) / denom
+					if overlap > mejor_overlap:
+						mejor_overlap = overlap
+						mejor_lab = lab
+			if mejor_overlap >= word_overlap_min and mejor_lab is not None:
+				grupos[mejor_lab].append(i)
+			else:
+				ruido_final.append(i)
 	ruido = ruido_final
 
 	grupos_salida = []

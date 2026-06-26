@@ -180,9 +180,8 @@
 
 <div class="params-inline">
   <div class="field-row">
-    <label style="font-size:.82rem;">Embedder (filtro)</label>
-    <select id="act-embedder" style="min-width:10rem;"
-            title="Filtra el análisis para mostrar solo búsquedas realizadas con este modelo de embedding. 'Todos' incluye todas las búsquedas independientemente del embedder usado.">
+    <label style="font-size:.82rem;" data-tooltip="Filtra las tablas para mostrar solo búsquedas hechas con este modelo de embedding. 'Todos' incluye todas las búsquedas sin importar el embedder." data-placement="top">Embedder (filtro)</label>
+    <select id="act-embedder" style="min-width:10rem;">
       <option value="">Todos</option>
       <option value="qwen3-0.6b">qwen3-0.6b</option>
       <option value="bge-m3">bge-m3</option>
@@ -192,15 +191,12 @@
     </select>
   </div>
   <div class="field-row">
-    <label style="font-size:.82rem;">Top N</label>
-    <input type="number" id="act-top-n" value="20" min="1" max="100" style="width:5rem;"
-           title="Número máximo de vídeos a mostrar en cada tabla." />
+    <label style="font-size:.82rem;" data-tooltip="Número máximo de vídeos a mostrar en cada tabla." data-placement="top">Top N</label>
+    <input type="number" id="act-top-n" value="20" min="1" max="100" style="width:5rem;" />
   </div>
   <div class="field-row">
-    <label style="font-size:.82rem;">Rank máx (encontrados)</label>
-    <input type="number" id="act-rank-max" value="" min="1" max="50" placeholder="todos"
-           style="width:6rem;"
-           title="Solo cuenta apariciones donde el vídeo apareció en las primeras N posiciones del ranking. Útil para medir presencia en el 'top 3' en lugar del top-K completo. Deja vacío para contar todas las posiciones." />
+    <label style="font-size:.82rem;" data-tooltip="Solo cuenta apariciones donde el vídeo estuvo en las primeras N posiciones del ranking. Útil para medir presencia en el 'top 3' en lugar del top-K completo. Vacío = todas las posiciones." data-placement="top">Rank máx (encontrados)</label>
+    <input type="number" id="act-rank-max" value="" min="1" max="50" placeholder="todos" style="width:6rem;" />
   </div>
   <div class="field-row" style="padding-bottom:.15rem;">
     <button id="act-load-btn" onclick="loadActividadTab()" style="margin:0;">Cargar</button>
@@ -244,33 +240,50 @@
 
 <div class="params-inline">
   <div class="field-row">
-    <label style="font-size:.82rem;">Embedder</label>
-    <select id="grp-embedder" style="min-width:10rem;"
-            title="Modelo de embedding para codificar las consultas antes de agrupar. 'Auto' usa el embedder más frecuente en el registro. Si las búsquedas se hicieron con un embedder específico, elige ese para mejores grupos.">
-      <option value="">Auto (más usado)</option>
-      <option value="qwen3-0.6b">qwen3-0.6b</option>
+    <label style="font-size:.82rem;" data-tooltip="Embedder con el que se filtra el historial antes de agrupar. Solo se consideran las búsquedas hechas con este modelo — sus vectores guardados se reutilizan directamente, sin re-codificar nada." data-placement="top">Embedder</label>
+    <select id="grp-embedder" style="min-width:10rem;">
+      <option value="jina-v3">jina-v3</option>
       <option value="bge-m3">bge-m3</option>
       <option value="e5-large-instruct">e5-large-instruct</option>
+      <option value="qwen3-0.6b">qwen3-0.6b</option>
       <option value="granite-107m">granite-107m</option>
-      <option value="jina-v3">jina-v3</option>
     </select>
   </div>
   <div class="field-row">
-    <label style="font-size:.82rem;">Tamaño mín. grupo</label>
-    <input type="number" id="grp-min-cluster" value="3" min="2" max="20" style="width:5rem;"
-           title="Número mínimo de consultas para que HDBSCAN forme un grupo. Valores más altos generan menos grupos pero más sólidos; valores más bajos capturan temas con pocas búsquedas pero pueden crear grupos espurios." />
+    <label style="font-size:.82rem;" data-tooltip="Número mínimo de consultas para que HDBSCAN forme un grupo. Más alto = menos grupos pero más sólidos. Más bajo = captura temas con pocas búsquedas pero puede crear grupos espurios." data-placement="top">Tamaño mín. grupo</label>
+    <input type="number" id="grp-min-cluster" value="3" min="2" max="20" style="width:5rem;" />
   </div>
   <div class="field-row">
-    <label style="font-size:.82rem;">Términos / grupo</label>
-    <input type="number" id="grp-top-terms" value="5" min="1" max="15" style="width:5rem;"
-           title="Cuántos términos representativos extrae KeyBERT por grupo. Estos términos se usan como etiqueta interpretable del grupo." />
+    <label style="font-size:.82rem;" data-tooltip="Cuántos términos extrae KeyBERT por grupo para la etiqueta interpretable. 5 es un buen balance; súbelo para etiquetas más descriptivas o bájalo si las etiquetas se ven redundantes." data-placement="top">Términos / grupo</label>
+    <input type="number" id="grp-top-terms" value="5" min="1" max="15" style="width:5rem;" />
   </div>
-  <div class="field-row" style="padding-bottom:.15rem;display:flex;gap:.5rem;align-items:flex-end;">
+  <div class="field-row">
+    <label style="font-size:.82rem;" data-tooltip="Algoritmo de selección de clusters HDBSCAN. 'leaf' (recomendado) forma clusters compactos y preserva grupos semánticamente distintos aunque estén cerca en el espacio vectorial. 'eom' (Excess of Mass) tiende a fusionar sub-clusters en datasets pequeños." data-placement="top">Método HDBSCAN</label>
+    <select id="grp-method" style="min-width:6rem;">
+      <option value="leaf" selected>leaf</option>
+      <option value="eom">eom</option>
+    </select>
+  </div>
+  <div class="field-row">
+    <label style="font-size:.82rem;" data-tooltip="Umbral mínimo de probabilidad de pertenencia HDBSCAN (0–1). Puntos con confianza menor se envían a ruido aunque hayan sido asignados a un grupo. 0.80 es conservador (solo miembros claros); bájalo para grupos más inclusivos." data-placement="top">Umbral prob.</label>
+    <input type="number" id="grp-prob-min" value="0.80" min="0" max="1" step="0.05" style="width:5rem;" />
+  </div>
+  <div class="field-row" style="padding-bottom:.15rem;display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap;">
     <button id="grp-btn" onclick="runGrupos()" style="margin:0;">Calcular grupos</button>
     <label style="font-size:.82rem;display:flex;align-items:center;gap:.3rem;margin:0;"
-           title="Usa la CPU aunque haya GPU disponible. Útil si la GPU tiene poca VRAM o está ocupada con otra tarea.">
+           data-tooltip="Usa CPU aunque haya GPU disponible. Útil si la GPU tiene poca VRAM o está ocupada con otra tarea." data-placement="top">
       <input type="checkbox" id="grp-cpu" role="switch" style="margin:0;" />
       Forzar CPU
+    </label>
+    <label style="font-size:.82rem;display:flex;align-items:center;gap:.3rem;margin:0;"
+           data-tooltip="Rescate léxico: tras el clustering, las consultas marcadas como ruido se comparan con los miembros de cada grupo usando solapamiento de palabras (sin BM25, sin embeddings). Si comparten al menos el umbral de palabras configurado, se reasignan al grupo más similar. Corrige casos donde el embedder prioriza el estilo ('rutas IP mascara' suena distinto a '¿por qué se prueba primero la máscara?')." data-placement="top">
+      <input type="checkbox" id="grp-rescue" role="switch" style="margin:0;" checked />
+      Rescate léxico
+    </label>
+    <label style="font-size:.82rem;display:flex;align-items:center;gap:.3rem;margin:0;"
+           data-tooltip="Umbral mínimo de solapamiento de palabras para el rescate léxico (0–1). Se calcula como palabras en común dividido por la longitud de la consulta más corta. 0.33 = al menos 1 de cada 3 palabras. Bájalo para rescatar más consultas; súbelo para ser más selectivo." data-placement="top">
+      Umbral solapamiento
+      <input type="number" id="grp-word-overlap" value="0.33" min="0.1" max="1" step="0.05" style="width:4.5rem;margin:0;" />
     </label>
   </div>
 </div>
@@ -506,10 +519,14 @@ async function runGrupos() {
   document.getElementById('grp-progress').hidden = false;
 
   const body = {
-    embedder:          document.getElementById('grp-embedder').value || null,
-    min_cluster_size:  parseInt(document.getElementById('grp-min-cluster').value) || 3,
-    top_terminos:      parseInt(document.getElementById('grp-top-terms').value) || 5,
-    forzar_cpu:        document.getElementById('grp-cpu').checked,
+    embedder:                    document.getElementById('grp-embedder').value,
+    min_cluster_size:            parseInt(document.getElementById('grp-min-cluster').value) || 3,
+    top_terminos:                parseInt(document.getElementById('grp-top-terms').value) || 5,
+    cluster_selection_method:    document.getElementById('grp-method').value || 'leaf',
+    prob_min:                    parseFloat(document.getElementById('grp-prob-min').value) || 0.80,
+    rescate_lexico:              document.getElementById('grp-rescue').checked,
+    word_overlap_min:            parseFloat(document.getElementById('grp-word-overlap').value) || 0.33,
+    forzar_cpu:                  document.getElementById('grp-cpu').checked,
   };
 
   try {
