@@ -266,7 +266,7 @@
   </div>
   <div class="field-row">
     <label style="font-size:.82rem;" data-tooltip="Umbral mínimo de probabilidad de pertenencia HDBSCAN (0–1). Puntos con confianza menor se envían a ruido aunque hayan sido asignados a un grupo. 0.80 es conservador (solo miembros claros); bájalo para grupos más inclusivos." data-placement="top">Umbral prob.</label>
-    <input type="number" id="grp-prob-min" value="0.80" min="0" max="1" step="0.05" style="width:5rem;" />
+    <input type="number" id="grp-prob-min" value="0.00" min="0" max="1" step="0.05" style="width:5rem;" />
   </div>
   <div class="field-row" style="padding-bottom:.15rem;display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap;">
     <button id="grp-btn" onclick="runGrupos()" style="margin:0;">Calcular grupos</button>
@@ -523,7 +523,7 @@ async function runGrupos() {
     min_cluster_size:            parseInt(document.getElementById('grp-min-cluster').value) || 3,
     top_terminos:                parseInt(document.getElementById('grp-top-terms').value) || 5,
     cluster_selection_method:    document.getElementById('grp-method').value || 'leaf',
-    prob_min:                    parseFloat(document.getElementById('grp-prob-min').value) || 0.80,
+    prob_min:                    parseFloat(document.getElementById('grp-prob-min').value),
     rescate_lexico:              document.getElementById('grp-rescue').checked,
     word_overlap_min:            parseFloat(document.getElementById('grp-word-overlap').value) || 0.33,
     forzar_cpu:                  document.getElementById('grp-cpu').checked,

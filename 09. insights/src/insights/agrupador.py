@@ -133,7 +133,7 @@ def agrupar_consultas(
 	min_samples: int | None = None,
 	top_terminos: int = 5,
 	cluster_selection_method: str = "leaf",
-	prob_min: float = 0.80,
+	prob_min: float = 0.0,
 	rescate_lexico: bool = True,
 	word_overlap_min: float = 0.33,
 ) -> dict:
@@ -180,9 +180,15 @@ def agrupar_consultas(
 		cluster_selection_method=cluster_selection_method,
 	)
 	etiquetas = clusterer.fit_predict(matriz.astype(np.float64))
+	probs = getattr(clusterer, "probabilities_", None)
+	import pathlib, json as _json
+	_dbg = {"n": len(consultas), "min_cluster_size": min_cluster_size, "min_samples": min_samples,
+	        "method": cluster_selection_method, "etiquetas": etiquetas.tolist(),
+	        "probs": probs.tolist() if probs is not None else None,
+	        "mat_shape": list(matriz.shape)}
+	pathlib.Path("_hdbscan_debug.json").write_text(_json.dumps(_dbg, indent=2))
 	# Puntos con probabilidad de pertenencia por debajo del umbral se tratan
 	# como ruido incluso si HDBSCAN les asignó una etiqueta de grupo.
-	probs = getattr(clusterer, "probabilities_", None)
 	_PROB_MIN = prob_min
 
 	grupos: dict[int, list[int]] = {}

@@ -1037,7 +1037,7 @@ def _run_grupos(params: dict, sq: queue.Queue) -> None:
             min_samples=params.get("min_samples"),
             top_terminos=int(params.get("top_terminos", 5)),
             cluster_selection_method=params.get("cluster_selection_method", "leaf"),
-            prob_min=float(params.get("prob_min", 0.80)),
+            prob_min=float(params.get("prob_min", 0.0)),
             rescate_lexico=bool(params.get("rescate_lexico", True)),
             word_overlap_min=float(params.get("word_overlap_min", 0.33)),
         )
