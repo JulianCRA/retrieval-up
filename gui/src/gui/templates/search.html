@@ -324,6 +324,7 @@ let _sortOpts     = [];
 let _curSort      = '';
 let _ctx          = {};   // { modo, reranker }
 let _totalElapsed = null;
+let _busquedaId   = null; // persisted search id for analytics
 
 /* ── Utils ── */
 function esc(s) {
@@ -448,8 +449,10 @@ function renderResults() {
 
     /* ── thumbnail ── */
     const thumb = item.has_thumbnail
-      ? `<div class="result-thumb-wrap"><img class="result-thumb" src="/thumbnail/${esc(item.hash)}" alt="" loading="lazy" /></div>`
-      : `<div class="result-thumb-wrap"><div class="result-thumb-placeholder" aria-hidden="true">▶</div></div>`;
+      ? `<div class="result-thumb-wrap"><img class="result-thumb" src="/thumbnail/${esc(item.hash)}" alt="" loading="lazy"
+           style="cursor:pointer;" onclick="recordSeleccion(${rank}, ${JSON.stringify(item.hash)}, ${item.chunk_idx ?? 'null'})" /></div>`
+      : `<div class="result-thumb-wrap"><div class="result-thumb-placeholder" aria-hidden="true" style="cursor:pointer;"
+           onclick="recordSeleccion(${rank}, ${JSON.stringify(item.hash)}, ${item.chunk_idx ?? 'null'})">▶</div></div>`;
 
     /* ── segments or fallback text ── */
     let contentHtml = '';
@@ -458,8 +461,9 @@ function renderResults() {
       const inlines = segs.map(seg => {
         const url = ytUrl(item.uri, seg.inicio);
         const txt = esc(seg.texto ?? '');
+        const onClick = `onclick="recordSeleccion(${rank}, ${JSON.stringify(item.hash)}, ${item.chunk_idx ?? 'null'})"`;
         return url
-          ? `<a class="seg-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${txt}</a>`
+          ? `<a class="seg-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer" ${onClick}>${txt}</a>`
           : txt;
       }).join(' ');
       contentHtml = `<p class="result-segments">${inlines}</p>`;
@@ -545,6 +549,7 @@ function streamSearch(jobId) {
           _curSort      = _sortOpts[0] ?? '';
           _ctx          = { modo: d.modo, reranker: d.reranker };
           _totalElapsed = d.total_elapsed ?? null;
+          _busquedaId   = d.busqueda_id ?? null;
 
           const rTxt  = d.reranker ? `, reranker: ${d.reranker}` : '';
           const timTxt = _totalElapsed != null ? ` · ⏱ ${_totalElapsed.toFixed(2)}s total` : '';
@@ -578,6 +583,21 @@ function streamSearch(jobId) {
   });
 }
 
+/* ── Selection tracking ── */
+function recordSeleccion(rank, videoId, chunkIdx) {
+  if (!_busquedaId) return;
+  fetch('/api/seleccion', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      busqueda_id: _busquedaId,
+      rank:        rank,
+      video_id:    videoId,
+      chunk_idx:   chunkIdx ?? null,
+    }),
+  }).catch(() => {/* fire-and-forget */});
+}
+
 /* ── doSearch ── */
 async function doSearch() {
   const q = document.getElementById('q').value.trim();
@@ -595,6 +615,7 @@ async function doSearch() {
 
   /* Reset UI */
   resetProgress();
+  _busquedaId   = null;
   document.getElementById('search-error').hidden   = true;
   document.getElementById('results-header').hidden = true;
   document.getElementById('results-container').innerHTML = '';

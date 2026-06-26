@@ -22,6 +22,7 @@ from pathlib import Path
 from flask import Flask, Response, abort, redirect, render_template, request, url_for
 
 from compartido.rutas import ARCHIVO_REGISTRO, INDICE_DB
+from compartido import sqlite_utils as _su
 from recuperador.rerank import RERANKERS as RERANKERS_DISPONIBLES
 
 app = Flask(__name__)
@@ -235,6 +236,55 @@ def _run_search(params: dict, sq: queue.Queue) -> None:
         resultados = _enriquecer_recursos(resultados)
         total_elapsed = round(_time.perf_counter() - t_total, 3)
 
+        # ── Persist to resultados.db for analytics ────────────────────────────
+        _query_vector: bytes | None = None
+        _query_bm25: str | None = None
+        if vector_query is not None:
+            import numpy as _np
+            _query_vector = _np.asarray(vector_query, dtype=_np.float32).tobytes()
+        if tokens_query is not None:
+            _query_bm25 = tokens_query
+        _busqueda_id: int | None = None
+        try:
+            from datetime import datetime as _dt
+            _ahora = _dt.now()
+            _datos = {
+                "timestamp":      _ahora.isoformat(timespec="seconds"),
+                "inicio":         _ahora.isoformat(timespec="seconds"),
+                "fin":            _ahora.isoformat(timespec="seconds"),
+                "query":          query,
+                "query_vector":   _query_vector,
+                "query_bm25":     _query_bm25,
+                "embedder":       embedder,
+                "modo":           modo,
+                "top_k":          top_k,
+                "reranker":       reranker,
+                "peso_semantica": peso_sem if modo == "wrrf" else None,
+                "tiempos":        {"total": total_elapsed},
+            }
+            _filas_db = []
+            for _r in resultados:
+                _so = {}
+                _ro = {}
+                if modo in ("rrf", "wrrf", "hibrido"):
+                    _so = {"denso": _r.get("score_denso"), "bm25": _r.get("score_bm25")}
+                    _ro = {"denso": _r.get("rank_denso"),  "bm25": _r.get("rank_bm25")}
+                _filas_db.append({
+                    "rank":         _r.get("rank_fusion") or (resultados.index(_r) + 1),
+                    "video_id":     _r.get("hash"),
+                    "titulo":       _r.get("titulo"),
+                    "chunk_idx":    _r.get("chunk_idx"),
+                    "score":        _r.get("score"),
+                    "score_rerank": _r.get("score_rerank"),
+                    "texto":        _r.get("texto", ""),
+                    "scores_origen": _so,
+                    "ranks_origen":  _ro,
+                })
+            _busqueda_id = _su.guardar_busqueda_completa(_datos, _filas_db)
+        except Exception as _exc:
+            import sys as _sys
+            print(f"[analytics] No se pudo guardar busqueda: {_exc}", file=_sys.stderr)
+
         emit(type="results", data={
             "query":          query,
             "embedder":       embedder,
@@ -244,6 +294,7 @@ def _run_search(params: dict, sq: queue.Queue) -> None:
             "num_resultados": len(resultados),
             "resultados":     resultados,
             "total_elapsed":  total_elapsed,
+            "busqueda_id":    _busqueda_id,
         })
 
     except Exception as exc:
@@ -849,6 +900,181 @@ def pipeline_stream(job_id: str):
                 if msg is None:           # sentinel → pipeline thread finished
                     with _jobs_lock:
                         _jobs[job_id] = None  # mark done; keep for reconnects
+                    yield 'data: {"type":"stream_end"}\n\n'
+                    break
+                yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
+            except queue.Empty:
+                yield 'data: {"type":"ping"}\n\n'
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ── Selection tracking ────────────────────────────────────────────────────────
+
+@app.route("/api/seleccion", methods=["POST"])
+def api_seleccion():
+    """Record a result selection (user opened/played a result from a search).
+
+    Expected JSON: { busqueda_id, rank, video_id?, chunk_idx? }
+    """
+    data = request.get_json(force=True) or {}
+    try:
+        busqueda_id = int(data["busqueda_id"])
+        rank = int(data["rank"])
+    except (KeyError, TypeError, ValueError):
+        return {"error": "busqueda_id y rank son requeridos (enteros)"}, 400
+
+    video_id  = data.get("video_id") or None
+    chunk_idx = data.get("chunk_idx")
+    if chunk_idx is not None:
+        try:
+            chunk_idx = int(chunk_idx)
+        except (TypeError, ValueError):
+            chunk_idx = None
+
+    try:
+        sel_id = _su.registrar_seleccion(
+            busqueda_id=busqueda_id,
+            rank=rank,
+            video_id=video_id,
+            chunk_idx=chunk_idx,
+        )
+        return {"ok": True, "seleccion_id": sel_id}
+    except Exception as exc:
+        return {"error": str(exc)}, 500
+
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+@app.route("/analytics")
+def analytics():
+    try:
+        from insights.corpus import resumen_corpus
+        corpus = resumen_corpus()
+    except Exception:
+        corpus = {}
+    return render_template("analytics.html", corpus=corpus)
+
+
+@app.route("/api/analytics/encontrados")
+def api_encontrados():
+    try:
+        from insights.registro import cargar_actividad
+        from insights.encontrados import videos_mas_encontrados
+        top_n    = max(1, min(100, int(request.args.get("top_n", 20))))
+        rank_max = request.args.get("rank_max")
+        rank_max = int(rank_max) if rank_max else None
+        embedder = request.args.get("embedder") or None
+        actividad = cargar_actividad().filtrar_embedder(embedder)
+        filas = videos_mas_encontrados(actividad, top_n=top_n, rank_max=rank_max)
+        return {"ok": True, "filas": filas, "total_busquedas": actividad.num_busquedas}
+    except Exception as exc:
+        return {"error": str(exc)}, 500
+
+
+@app.route("/api/analytics/seleccionados")
+def api_seleccionados():
+    try:
+        from insights.registro import cargar_actividad
+        from insights.seleccionados import videos_mas_seleccionados, comparar_encontrados_seleccionados
+        top_n    = max(1, min(100, int(request.args.get("top_n", 20))))
+        embedder = request.args.get("embedder") or None
+        actividad = cargar_actividad().filtrar_embedder(embedder)
+        filas    = videos_mas_seleccionados(actividad, top_n=top_n)
+        comparar = comparar_encontrados_seleccionados(actividad, top_n=top_n)
+        return {"ok": True, "filas": filas, "comparar": comparar,
+                "total_selecciones": actividad.num_selecciones}
+    except Exception as exc:
+        return {"error": str(exc)}, 500
+
+
+_analytics_jobs: dict[str, queue.Queue] = {}
+_analytics_jobs_lock = threading.Lock()
+
+
+def _run_grupos(params: dict, sq: queue.Queue) -> None:
+    """Background thread: runs HDBSCAN+KeyBERT clustering and emits SSE messages."""
+    import time as _time
+
+    def emit(**kwargs):
+        sq.put(kwargs)
+
+    try:
+        from insights.registro import cargar_actividad
+        from insights.agrupador import agrupar_consultas
+        from compartido.utils import crear_perfil_hardware
+
+        device = crear_perfil_hardware(
+            forzado={"device": "cpu"} if params.get("forzar_cpu") else None
+        )["device"]
+
+        emit(type="phase_start", label="Cargando registro de actividad…")
+        actividad = cargar_actividad().filtrar_embedder(params.get("embedder"))
+        emit(type="phase_done", label="Registro cargado",
+             n_consultas=actividad.num_busquedas)
+
+        if actividad.num_busquedas == 0:
+            emit(type="result", data={"grupos": [], "ruido": [],
+                                       "num_grupos": 0, "num_consultas": 0,
+                                       "embedder": None})
+            return
+
+        emit(type="phase_start", label="Vectorizando y agrupando consultas…")
+        t0 = _time.perf_counter()
+        resultado = agrupar_consultas(
+            actividad,
+            embedder=params.get("embedder"),
+            device=device,
+            min_cluster_size=int(params.get("min_cluster_size", 3)),
+            min_samples=params.get("min_samples"),
+            top_terminos=int(params.get("top_terminos", 5)),
+        )
+        elapsed = round(_time.perf_counter() - t0, 2)
+        emit(type="phase_done", label="Agrupación completada",
+             elapsed=elapsed, n_grupos=resultado["num_grupos"])
+        emit(type="result", data=resultado)
+
+    except Exception as exc:
+        emit(type="error", message=str(exc))
+    finally:
+        sq.put(None)
+
+
+@app.route("/api/analytics/grupos", methods=["POST"])
+def api_grupos_submit():
+    data = request.get_json(force=True) or {}
+    job_id = str(uuid.uuid4())
+    sq: queue.Queue = queue.Queue()
+    with _analytics_jobs_lock:
+        _analytics_jobs[job_id] = sq
+    threading.Thread(
+        target=_run_grupos, args=(data, sq), daemon=True
+    ).start()
+    return {"job_id": job_id}
+
+
+@app.route("/api/analytics/grupos/stream/<job_id>")
+def api_grupos_stream(job_id: str):
+    with _analytics_jobs_lock:
+        sq = _analytics_jobs.get(job_id)
+    if sq is None:
+        abort(404)
+
+    def generate():
+        while True:
+            try:
+                msg = sq.get(timeout=600)
+                if msg is None:
+                    with _analytics_jobs_lock:
+                        _analytics_jobs.pop(job_id, None)
                     yield 'data: {"type":"stream_end"}\n\n'
                     break
                 yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"

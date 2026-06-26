@@ -35,9 +35,10 @@
 <body>
   <nav class="top-nav">
     <a class="brand" href="/">retrieval-up</a>
-    <a href="/browse"   {% if request.path.startswith('/browse')   %}class="active"{% endif %}>Recursos</a>
-    <a href="/search"   {% if request.path.startswith('/search')   %}class="active"{% endif %}>Búsqueda</a>
-    <a href="/pipeline" {% if request.path.startswith('/pipeline') %}class="active"{% endif %}>Pipeline</a>
+    <a href="/browse"     {% if request.path.startswith('/browse')     %}class="active"{% endif %}>Recursos</a>
+    <a href="/search"     {% if request.path.startswith('/search')     %}class="active"{% endif %}>Búsqueda</a>
+    <a href="/pipeline"   {% if request.path.startswith('/pipeline')   %}class="active"{% endif %}>Pipeline</a>
+    <a href="/analytics"  {% if request.path.startswith('/analytics')  %}class="active"{% endif %}>Analítica</a>
   </nav>
 
   <main>
