@@ -246,6 +246,17 @@
 
 <div class="params-inline">
   <div class="field-row">
+    <label style="font-size:.82rem;" data-tooltip="Filtra qué búsquedas del historial se agrupan. El embedding siempre usa qwen3-0.6b." data-placement="top">Filtrar historial</label>
+    <select id="grp-embedder" style="min-width:10rem;">
+      <option value="">Todos</option>
+      <option value="qwen3-0.6b">qwen3-0.6b</option>
+      <option value="bge-m3">bge-m3</option>
+      <option value="e5-large-instruct">e5-large-instruct</option>
+      <option value="granite-107m">granite-107m</option>
+      <option value="jina-v3">jina-v3</option>
+    </select>
+  </div>
+  <div class="field-row">
     <label style="font-size:.82rem;" data-tooltip="Mínimo de consultas para que exista un grupo. Más alto = grupos más sólidos; más bajo = captura temas pequeños." data-placement="top">Tamaño mín. grupo</label>
     <input type="number" id="grp-min-cluster" value="5" min="2" max="50" style="width:5rem;" />
   </div>
@@ -494,6 +505,7 @@ async function runGrupos() {
   document.getElementById('grp-progress').hidden = false;
 
   const body = {
+    embedder:          document.getElementById('grp-embedder').value || null,
     min_cluster_size:  parseInt(document.getElementById('grp-min-cluster').value) || 5,
     min_samples:       parseInt(document.getElementById('grp-min-samples').value) || 2,
     forzar_cpu:        document.getElementById('grp-cpu').checked,

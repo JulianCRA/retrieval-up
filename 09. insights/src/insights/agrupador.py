@@ -25,6 +25,10 @@ _EMBEDDER_ID   = "qwen3-0.6b"
 _TOP_TERMINOS  = 5       # terminos KeyBERT por grupo
 _UMAP_MIN_DIST = 0.0     # 0.0 = clusters compactos
 
+# Cache de embeddings qwen por texto de consulta (vive mientras el proceso este activo).
+# mcs/min_samples no afectan los vectores: se puede reutilizar entre llamadas.
+_embed_cache: dict[str, list[float]] = {}
+
 
 def _normalizar(matriz: np.ndarray) -> np.ndarray:
 	normas = np.linalg.norm(matriz, axis=1, keepdims=True)
@@ -83,11 +87,15 @@ def _consultas_unicas(actividad: Actividad) -> list[dict]:
 
 
 def _embed_consultas(consultas: list[dict], device: str) -> np.ndarray:
-	"""Codifica todas las consultas con qwen3-0.6b (plain, sin prefijo de tarea)."""
-	modelo = cargar_sentence_transformer(_EMBEDDER_ID, device=device)
-	textos = [c["query"] for c in consultas]
-	vecs = modelo.encode(textos, normalize_embeddings=True)
-	return _normalizar(np.asarray(vecs, dtype=np.float32))
+	"""Codifica consultas con qwen3-0.6b, reutilizando vectores ya calculados."""
+	faltan = [c["query"] for c in consultas if c["query"] not in _embed_cache]
+	if faltan:
+		modelo = cargar_sentence_transformer(_EMBEDDER_ID, device=device)
+		vecs = modelo.encode(faltan, normalize_embeddings=True)
+		for texto, vec in zip(faltan, vecs):
+			_embed_cache[texto] = vec.tolist()
+	matriz = np.array([_embed_cache[c["query"]] for c in consultas], dtype=np.float32)
+	return _normalizar(matriz)
 
 
 def _etiquetas_keybert(textos: list[str], device: str) -> list[str]:
