@@ -22,7 +22,7 @@ from compartido.embedders import cargar_sentence_transformer
 from insights.registro import Actividad
 
 _EMBEDDER_ID   = "qwen3-0.6b"
-_TOP_TERMINOS  = 5       # terminos KeyBERT por grupo
+_TOP_TERMINOS  = 3       # terminos KeyBERT por grupo (MMR asegura diversidad)
 _UMAP_MIN_DIST = 0.0     # 0.0 = clusters compactos
 
 # Cache de embeddings qwen por texto de consulta (vive mientras el proceso este activo).
@@ -206,6 +206,11 @@ def agrupar_consultas(
 		textos = [consultas[i]["query"] for i in indices]
 		frecuencia  = sum(consultas[i]["frecuencia"]  for i in indices)
 		selecciones = sum(consultas[i]["selecciones"] for i in indices)
+		# Consulta mas cercana al centroide del cluster como etiqueta principal.
+		vecs_cluster = np.array([_embed_cache[consultas[i]["query"]] for i in indices], dtype=np.float32)
+		centroide = vecs_cluster.mean(axis=0)
+		dists = np.linalg.norm(vecs_cluster - centroide, axis=1)
+		etiqueta = textos[int(np.argmin(dists))]
 		terminos = _etiquetas_keybert(textos, device)
 		grupos_salida.append({
 			"grupo": lab,
@@ -214,7 +219,7 @@ def agrupar_consultas(
 			"selecciones_total": selecciones,
 			"sin_seleccion": selecciones == 0,
 			"terminos": terminos,
-			"etiqueta": ", ".join(terminos) if terminos else f"grupo {lab}",
+			"etiqueta": etiqueta,
 			"consultas": textos,
 		})
 

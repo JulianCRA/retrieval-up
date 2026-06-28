@@ -603,13 +603,13 @@ function renderGrupos(data) {
       const seeAll = g.consultas.length > 0
         ? `<button class="cluster-see-all" onclick="openGrupoModal(${gi})">Ver todas (${g.consultas.length}) →</button>`
         : '';
-      const tagHtml = g.terminos && g.terminos.length
+      const tagsHtml = g.terminos && g.terminos.length
         ? `<div class="cluster-tags">${g.terminos.map(t => `<span class="cluster-tag">${esc(t)}</span>`).join('')}</div>`
-        : `<div class="cluster-label">${esc(g.etiqueta)}</div>`;
+        : '';
       html += `
 <div class="cluster-card${noSel}">
-  ${tagHtml}
-  ${noSelBadge}
+  <div class="cluster-label">${esc(g.etiqueta)}${noSelBadge}</div>
+  ${tagsHtml}
   <div class="cluster-meta">${g.tamano} consulta${g.tamano!==1?'s':''} · frec. ${g.frecuencia_total} · selec. ${g.selecciones_total}</div>
   <ul class="cluster-queries">${preview}</ul>
   ${seeAll}
