@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 
-from compartido.embedders import listar_ids
 from compartido.utils import crear_perfil_hardware
 
 from insights import corpus as mod_corpus
@@ -94,11 +93,9 @@ def cmd_grupos(args) -> None:
 	actividad = cargar_actividad().filtrar_embedder(args.embedder)
 	resultado = agrupar_consultas(
 		actividad,
-		embedder=args.embedder,
 		device=_device(args.forzar_cpu),
 		min_cluster_size=args.min_cluster_size,
 		min_samples=args.min_samples,
-		top_terminos=args.top_terminos,
 	)
 
 	print("\n=== Agrupacion de consultas ===")
@@ -150,7 +147,6 @@ def _add_comunes(sub: argparse.ArgumentParser, *, top_default: int = 20) -> None
 	sub.add_argument(
 		"--embedder",
 		default=None,
-		choices=listar_ids(),
 		help="Restringe el analisis a las busquedas de un embedder concreto.",
 	)
 	sub.add_argument(
@@ -184,40 +180,34 @@ def main() -> None:
 	p_corpus = sub.add_parser("corpus", help="Vista agregada del corpus indexado.")
 	_add_comunes(p_corpus)
 	p_corpus.set_defaults(func=cmd_corpus, rank_max=None,
-						   min_cluster_size=3, min_samples=None, top_terminos=5)
-
+					   min_cluster_size=5, min_samples=2)
 	p_enc = sub.add_parser("encontrados", help="Videos mas encontrados por el sistema.")
 	_add_comunes(p_enc)
 	p_enc.add_argument("--rank-max", type=int, default=None, dest="rank_max",
 					   help="Solo contar apariciones con rank <= RANK_MAX (ej. primeros 3).")
-	p_enc.set_defaults(func=cmd_encontrados, min_cluster_size=3, min_samples=None, top_terminos=5)
+	p_enc.set_defaults(func=cmd_encontrados, min_cluster_size=5, min_samples=2)
 
 	p_sel = sub.add_parser("seleccionados", help="Videos mas seleccionados por los usuarios.")
 	_add_comunes(p_sel)
 	p_sel.set_defaults(func=cmd_seleccionados, rank_max=None,
-					   min_cluster_size=3, min_samples=None, top_terminos=5)
-
+				   min_cluster_size=5, min_samples=2)
 	p_cmp = sub.add_parser("comparar", help="Encontrados vs. seleccionados.")
 	_add_comunes(p_cmp)
 	p_cmp.set_defaults(func=cmd_comparar, rank_max=None,
-					   min_cluster_size=3, min_samples=None, top_terminos=5)
-
+				   min_cluster_size=5, min_samples=2)
 	p_grp = sub.add_parser("grupos", help="Agrupar consultas similares (HDBSCAN + KeyBERT).")
 	_add_comunes(p_grp)
-	p_grp.add_argument("--min-cluster-size", type=int, default=3, dest="min_cluster_size",
-					   help="Tamano minimo de grupo para HDBSCAN (default: 3).")
-	p_grp.add_argument("--min-samples", type=int, default=None, dest="min_samples",
-					   help="Parametro min_samples de HDBSCAN (default: None).")
-	p_grp.add_argument("--top-terminos", type=int, default=5, dest="top_terminos",
-					   help="Numero de terminos por grupo extraidos con KeyBERT (default: 5).")
+p_grp.add_argument("--min-cluster-size", type=int, default=5, dest="min_cluster_size",
+				   help="Tamano minimo de grupo para HDBSCAN (default: 5).")
+	p_grp.add_argument("--min-samples", type=int, default=2, dest="min_samples",
+				   help="Parametro min_samples de HDBSCAN (default: 2).")
 	p_grp.set_defaults(func=cmd_grupos, rank_max=None)
 
 	p_todo = sub.add_parser("todo", help="Ejecuta todas las salidas.")
 	_add_comunes(p_todo)
 	p_todo.add_argument("--rank-max", type=int, default=None, dest="rank_max")
-	p_todo.add_argument("--min-cluster-size", type=int, default=3, dest="min_cluster_size")
-	p_todo.add_argument("--min-samples", type=int, default=None, dest="min_samples")
-	p_todo.add_argument("--top-terminos", type=int, default=5, dest="top_terminos")
+	p_todo.add_argument("--min-cluster-size", type=int, default=5, dest="min_cluster_size")
+	p_todo.add_argument("--min-samples", type=int, default=2, dest="min_samples")
 	p_todo.set_defaults(func=cmd_todo)
 
 	args = parser.parse_args()

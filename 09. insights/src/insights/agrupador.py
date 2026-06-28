@@ -1,40 +1,68 @@
 """Salida 3: agrupacion de consultas semanticamente similares.
 
-Las consultas registradas se codifican con uno de los modelos de embedding
-disponibles y se normalizan en el espacio vectorial. Sobre estos vectores se
-aplica HDBSCAN, que identifica grupos densos sin fijar de antemano el numero de
-grupos y marca como ruido las consultas aisladas o poco frecuentes. Despues se
-aplica KeyBERT sobre las consultas de cada grupo para extraer terminos
-representativos que sirven como etiquetas interpretables.
+Las consultas registradas se codifican con qwen3-0.6b, se reducen con UMAP
+(metrica cosine, min_dist=0.0) y se agrupan con HDBSCAN (leaf + soft
+assignment). Las etiquetas de cada grupo se extraen con KeyBERT.
 
-El objetivo es que el docente reconozca temas recurrentes, dudas formuladas con
-vocabularios distintos y posibles vacios del corpus (un grupo que acumula
+El objetivo es que el docente reconozca temas recurrentes, dudas formuladas
+con vocabularios distintos y posibles vacios del corpus (un grupo que acumula
 busquedas sin resultados seleccionados).
+
+Configuracion derivada del benchmark cluster_qwen.py:
+  qwen3-0.6b  +  UMAP (cosine, min_dist=0.0)  +  HDBSCAN leaf + soft assignment
+  ARI=0.90  NMI=0.92  purity=0.93 en el dataset de evaluacion (305 queries, 10 grupos).
 """
 from __future__ import annotations
 
+import warnings
 import numpy as np
 
-from compartido.embedders import cargar_sentence_transformer, get_spec, listar_ids
+from compartido.embedders import cargar_sentence_transformer
 
 from insights.registro import Actividad
 
+_EMBEDDER_ID   = "qwen3-0.6b"
+_TOP_TERMINOS  = 5       # terminos KeyBERT por grupo
+_UMAP_MIN_DIST = 0.0     # 0.0 = clusters compactos
+
 
 def _normalizar(matriz: np.ndarray) -> np.ndarray:
-	"""L2-normaliza por fila (vectores en la hiperesfera unidad)."""
 	normas = np.linalg.norm(matriz, axis=1, keepdims=True)
 	normas[normas == 0] = 1.0
 	return matriz / normas
 
 
-def _consultas_unicas(actividad: Actividad) -> list[dict]:
-	"""Consultas distintas (por texto) con frecuencia y selecciones acumuladas.
+def _compute_umap_params(n: int) -> tuple[int, int]:
+	"""Devuelve (n_neighbors, n_components) — misma logica que cluster_qwen.py.
 
-	Se deduplican por texto: la misma pregunta buscada con distintos embedders
-	cuenta como una sola entrada. El vector almacenado se ignora porque fue
-	codificado con tarea 'retrieval.query' (optimizada para recuperacion, no
-	para similitud entre consultas). Se re-codificara con el modelo elegido.
+	n_neighbors: ~10% de N, min 15, max 100 (capado a n-1 para que UMAP no falle).
+	n_components: mitad de n_neighbors, min 5 (capado a n-1).
 	"""
+	nn = min(n - 1, max(15, min(n // 10, 100)))
+	nc = min(n - 1, max(5, nn // 2))
+	return nn, nc
+
+
+def _soft_assign(cl, pred: np.ndarray) -> np.ndarray:
+	"""Reasigna puntos de ruido al cluster de mayor probabilidad de pertenencia."""
+	import hdbscan as _hdbscan
+	if (pred == -1).sum() == 0:
+		return pred
+	soft = _hdbscan.all_points_membership_vectors(cl)
+	soft = np.atleast_2d(soft)
+	if soft.shape[0] == 1:
+		soft = soft.T
+	pred_soft = pred.copy()
+	for i, lab in enumerate(pred):
+		if lab == -1:
+			best = int(np.argmax(soft[i]))
+			if soft[i][best] > 0.0:
+				pred_soft[i] = best
+	return pred_soft
+
+
+def _consultas_unicas(actividad: Actividad) -> list[dict]:
+	"""Consultas distintas (por texto) con frecuencia y selecciones acumuladas."""
 	por_texto: dict[str, dict] = {}
 	sel_por_busqueda: dict[int, int] = {}
 	for s in actividad.selecciones:
@@ -46,12 +74,7 @@ def _consultas_unicas(actividad: Actividad) -> list[dict]:
 			continue
 		entrada = por_texto.get(query)
 		if entrada is None:
-			entrada = {
-				"query": query,
-				"frecuencia": 0,
-				"selecciones": 0,
-				"vector": None,  # always re-encode for clustering
-			}
+			entrada = {"query": query, "frecuencia": 0, "selecciones": 0}
 			por_texto[query] = entrada
 		entrada["frecuencia"] += 1
 		entrada["selecciones"] += sel_por_busqueda.get(b["id"], 0)
@@ -59,48 +82,15 @@ def _consultas_unicas(actividad: Actividad) -> list[dict]:
 	return list(por_texto.values())
 
 
-def _resolver_embedder(consultas: list[dict], embedder: str | None) -> str:
-	if embedder:
-		return embedder
-	# Embedder mas usado entre las consultas; fallback al primero disponible.
-	conteo: dict[str, int] = {}
-	for c in consultas:
-		e = c.get("embedder")
-		if e:
-			conteo[e] = conteo.get(e, 0) + c["frecuencia"]
-	if conteo:
-		return max(conteo, key=conteo.get)
-	return listar_ids()[0]
+def _embed_consultas(consultas: list[dict], device: str) -> np.ndarray:
+	"""Codifica todas las consultas con qwen3-0.6b (plain, sin prefijo de tarea)."""
+	modelo = cargar_sentence_transformer(_EMBEDDER_ID, device=device)
+	textos = [c["query"] for c in consultas]
+	vecs = modelo.encode(textos, normalize_embeddings=True)
+	return _normalizar(np.asarray(vecs, dtype=np.float32))
 
 
-def _matriz_embeddings(consultas: list[dict], embedder: str, device: str) -> np.ndarray:
-	"""Devuelve la matriz de embeddings, reusando vectores almacenados cuando existan."""
-	dim = get_spec(embedder).dim
-	faltan_idx = [
-		i for i, c in enumerate(consultas)
-		if c.get("vector") is None or len(c["vector"]) != dim
-	]
-
-	if faltan_idx:
-		modelo = cargar_sentence_transformer(embedder, device=device)
-		spec = get_spec(embedder)
-		textos = []
-		for i in faltan_idx:
-			q = consultas[i]["query"]
-			textos.append(spec.prefijo_query + q if spec.prefijo_query else q)
-		# No usar tarea_query: esa tarea optimiza query↔passage (retrieval),
-		# lo que maximiza las distancias entre queries. Para clustering
-		# necesitamos similitud query↔query, es decir, encodificacion plana.
-		nuevos = modelo.encode(textos, normalize_embeddings=True)
-		nuevos = np.asarray(nuevos, dtype=np.float32)
-		for pos, i in enumerate(faltan_idx):
-			consultas[i]["vector"] = nuevos[pos]
-
-	matriz = np.vstack([np.asarray(c["vector"], dtype=np.float32) for c in consultas])
-	return _normalizar(matriz)
-
-
-def _etiquetas_keybert(textos: list[str], device: str, top_n: int, embedder: str) -> list[str]:
+def _etiquetas_keybert(textos: list[str], device: str) -> list[str]:
 	"""Extrae terminos representativos de un grupo de consultas con KeyBERT."""
 	try:
 		from keybert import KeyBERT
@@ -108,121 +98,107 @@ def _etiquetas_keybert(textos: list[str], device: str, top_n: int, embedder: str
 		return []
 	if not textos:
 		return []
-
-	modelo_st = cargar_sentence_transformer(embedder, device=device)
+	modelo_st = cargar_sentence_transformer(_EMBEDDER_ID, device=device)
 	kw = KeyBERT(model=modelo_st)
 	documento = ". ".join(textos)
 	pares = kw.extract_keywords(
 		documento,
 		keyphrase_ngram_range=(1, 3),
 		stop_words=None,
-		top_n=top_n,
+		top_n=_TOP_TERMINOS,
 	)
 	return [termino for termino, _score in pares]
 
 
 def agrupar_consultas(
 	actividad: Actividad,
-	embedder: str | None = None,
 	device: str = "cpu",
-	min_cluster_size: int = 3,
-	min_samples: int | None = None,
-	top_terminos: int = 5,
-	cluster_selection_method: str = "leaf",
-	prob_min: float = 0.0,
-	rescate_lexico: bool = True,
-	word_overlap_min: float = 0.33,
+	min_cluster_size: int = 5,
+	min_samples: int = 2,
 ) -> dict:
-	"""Agrupa consultas similares con HDBSCAN y las etiqueta con KeyBERT.
+	"""Agrupa consultas con UMAP + HDBSCAN (leaf + soft) y etiqueta con KeyBERT.
 
 	Devuelve un dict con la lista de grupos (cada uno con sus consultas, tamano,
 	terminos representativos y selecciones acumuladas) y las consultas marcadas
-	como ruido. Si no hay suficientes consultas, devuelve una estructura vacia.
+	como ruido.
 	"""
 	consultas = _consultas_unicas(actividad)
 	resultado: dict = {
-		"embedder": None,
+		"embedder": _EMBEDDER_ID,
 		"num_consultas": len(consultas),
 		"num_grupos": 0,
 		"grupos": [],
 		"ruido": [],
 	}
 
-	if len(consultas) < max(min_cluster_size, 2):
-		# No hay material suficiente para una agrupacion densa significativa.
+	n = len(consultas)
+	if n < max(min_cluster_size, 2):
 		resultado["ruido"] = [
 			{"query": c["query"], "frecuencia": c["frecuencia"], "selecciones": c["selecciones"]}
 			for c in consultas
 		]
 		return resultado
 
-	embedder = _resolver_embedder(consultas, embedder)
-	resultado["embedder"] = embedder
+	# ── Embeddings ────────────────────────────────────────────────────────────
+	matriz = _embed_consultas(consultas, device)
 
-	matriz = _matriz_embeddings(consultas, embedder, device)
+	# ── UMAP ─────────────────────────────────────────────────────────────────
+	try:
+		import umap as umap_lib
+	except ImportError as exc:
+		raise RuntimeError(
+			"umap-learn no esta instalado. Instala el modulo '09. insights'."
+		) from exc
 
+	nn, nc = _compute_umap_params(n)
+	with warnings.catch_warnings():
+		warnings.filterwarnings("ignore", message="n_jobs value", category=UserWarning)
+		reducer = umap_lib.UMAP(
+			n_components=nc,
+			metric="cosine",
+			n_neighbors=nn,
+			min_dist=_UMAP_MIN_DIST,
+			random_state=42,
+			n_jobs=1,
+		)
+		matriz_low = reducer.fit_transform(matriz.astype(np.float64))
+
+	# ── HDBSCAN + soft assignment ─────────────────────────────────────────────
 	try:
 		import hdbscan
 	except ImportError as exc:
 		raise RuntimeError(
-			"hdbscan no esta instalado. Instala el modulo '09. insights' "
-			"(pip install -e '09. insights')."
+			"hdbscan no esta instalado. Instala el modulo '09. insights'."
 		) from exc
 
-	clusterer = hdbscan.HDBSCAN(
-		min_cluster_size=min_cluster_size,
-		min_samples=min_samples,
-		metric="euclidean",  # sobre vectores L2-normalizados ~ distancia coseno
-		cluster_selection_method=cluster_selection_method,
-	)
-	etiquetas = clusterer.fit_predict(matriz.astype(np.float64))
-	probs = getattr(clusterer, "probabilities_", None)
-	# Puntos con probabilidad de pertenencia por debajo del umbral se tratan
-	# como ruido incluso si HDBSCAN les asignó una etiqueta de grupo.
-	_PROB_MIN = prob_min
+	mcs_efectivo = max(2, min_cluster_size)
+	ms_efectivo  = max(1, min_samples)
 
+	clusterer = hdbscan.HDBSCAN(
+		min_cluster_size=mcs_efectivo,
+		min_samples=ms_efectivo,
+		metric="euclidean",
+		cluster_selection_method="leaf",
+		prediction_data=True,
+	)
+	pred_hard = clusterer.fit_predict(matriz_low.astype(np.float64))
+	pred = _soft_assign(clusterer, pred_hard)
+
+	# ── Construir grupos ──────────────────────────────────────────────────────
 	grupos: dict[int, list[int]] = {}
 	ruido: list[int] = []
-	for idx, lab in enumerate(etiquetas):
-		if lab == -1 or (probs is not None and probs[idx] < _PROB_MIN):
+	for idx, lab in enumerate(pred):
+		if lab == -1:
 			ruido.append(idx)
 		else:
 			grupos.setdefault(int(lab), []).append(idx)
 
-	# Rescate léxico (opcional): puntos de ruido que comparten vocabulario
-	# significativo con miembros de un grupo se reasignan a ese grupo.
-	# Corrige el caso en que el embedder codifica el estilo de la pregunta
-	# por encima del tema léxico. Umbral configurable (default 0.33).
-	ruido_final: list[int] = []
-	if not rescate_lexico or not grupos:
-		ruido_final = list(ruido)
-	else:
-		for i in ruido:
-			palabras_i = set(consultas[i]["query"].lower().split())
-			mejor_lab: int | None = None
-			mejor_overlap = 0.0
-			for lab, indices in grupos.items():
-				for j in indices:
-					palabras_j = set(consultas[j]["query"].lower().split())
-					denom = min(len(palabras_i), len(palabras_j))
-					if denom == 0:
-						continue
-					overlap = len(palabras_i & palabras_j) / denom
-					if overlap > mejor_overlap:
-						mejor_overlap = overlap
-						mejor_lab = lab
-			if mejor_overlap >= word_overlap_min and mejor_lab is not None:
-				grupos[mejor_lab].append(i)
-			else:
-				ruido_final.append(i)
-	ruido = ruido_final
-
 	grupos_salida = []
 	for lab, indices in grupos.items():
 		textos = [consultas[i]["query"] for i in indices]
-		frecuencia = sum(consultas[i]["frecuencia"] for i in indices)
+		frecuencia  = sum(consultas[i]["frecuencia"]  for i in indices)
 		selecciones = sum(consultas[i]["selecciones"] for i in indices)
-		terminos = _etiquetas_keybert(textos, device, top_terminos, embedder)
+		terminos = _etiquetas_keybert(textos, device)
 		grupos_salida.append({
 			"grupo": lab,
 			"tamano": len(indices),
