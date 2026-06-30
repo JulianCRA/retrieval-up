@@ -47,22 +47,34 @@ def _compute_umap_params(n: int) -> tuple[int, int]:
 	return nn, nc
 
 
-def _soft_assign(cl, pred: np.ndarray) -> np.ndarray:
-	"""Reasigna puntos de ruido al cluster de mayor probabilidad de pertenencia."""
+def _soft_assign(cl, pred: np.ndarray, min_prob: float = 0.5) -> np.ndarray:
+	"""Aplica min_prob en ambas direcciones:
+	- Puntos ya asignados por HDBSCAN con probabilities_ < min_prob se demoten a ruido.
+	- Puntos de ruido cuya mejor probabilidad soft >= min_prob se rescatan.
+	"""
 	import hdbscan as _hdbscan
-	if (pred == -1).sum() == 0:
-		return pred
+	probs = getattr(cl, "probabilities_", None)
+	pred_out = pred.copy()
+
+	# 1. Demotar puntos con baja confianza a ruido.
+	if probs is not None:
+		for i, lab in enumerate(pred_out):
+			if lab != -1 and probs[i] < min_prob:
+				pred_out[i] = -1
+
+	# 2. Rescatar ruido con alta probabilidad soft.
+	noise_idx = [i for i, lab in enumerate(pred_out) if lab == -1]
+	if not noise_idx:
+		return pred_out
 	soft = _hdbscan.all_points_membership_vectors(cl)
 	soft = np.atleast_2d(soft)
 	if soft.shape[0] == 1:
 		soft = soft.T
-	pred_soft = pred.copy()
-	for i, lab in enumerate(pred):
-		if lab == -1:
-			best = int(np.argmax(soft[i]))
-			if soft[i][best] > 0.0:
-				pred_soft[i] = best
-	return pred_soft
+	for i in noise_idx:
+		best = int(np.argmax(soft[i]))
+		if soft[i][best] >= min_prob:
+			pred_out[i] = best
+	return pred_out
 
 
 def _consultas_unicas(actividad: Actividad) -> list[dict]:
@@ -123,6 +135,7 @@ def agrupar_consultas(
 	device: str = "cpu",
 	min_cluster_size: int = 5,
 	min_samples: int = 2,
+	min_prob: float = 0.15,
 ) -> dict:
 	"""Agrupa consultas con UMAP + HDBSCAN (leaf + soft) y etiqueta con KeyBERT.
 
@@ -161,15 +174,23 @@ def agrupar_consultas(
 	nn, nc = _compute_umap_params(n)
 	with warnings.catch_warnings():
 		warnings.filterwarnings("ignore", message="n_jobs value", category=UserWarning)
-		reducer = umap_lib.UMAP(
-			n_components=nc,
-			metric="cosine",
-			n_neighbors=nn,
-			min_dist=_UMAP_MIN_DIST,
-			random_state=42,
-			n_jobs=1,
-		)
-		matriz_low = reducer.fit_transform(matriz.astype(np.float64))
+		while nc >= 2:
+			try:
+				reducer = umap_lib.UMAP(
+					n_components=nc,
+					metric="cosine",
+					n_neighbors=nn,
+					min_dist=_UMAP_MIN_DIST,
+					random_state=42,
+					n_jobs=1,
+				)
+				matriz_low = reducer.fit_transform(matriz.astype(np.float64))
+				break
+			except Exception as e:
+				if "k >=" in str(e) or "k >= N" in str(e):
+					nc -= 1
+				else:
+					raise
 
 	# ── HDBSCAN + soft assignment ─────────────────────────────────────────────
 	try:
@@ -190,7 +211,7 @@ def agrupar_consultas(
 		prediction_data=True,
 	)
 	pred_hard = clusterer.fit_predict(matriz_low.astype(np.float64))
-	pred = _soft_assign(clusterer, pred_hard)
+	pred = _soft_assign(clusterer, pred_hard, min_prob=min_prob)
 
 	# ── Construir grupos ──────────────────────────────────────────────────────
 	grupos: dict[int, list[int]] = {}

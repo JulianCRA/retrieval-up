@@ -264,6 +264,10 @@
     <label style="font-size:.82rem;" data-tooltip="Vecinos mínimos para que un punto sea núcleo. Más alto = más ruido, clusters más densos. Independiente del tamaño mínimo." data-placement="top">min_samples</label>
     <input type="number" id="grp-min-samples" value="2" min="1" max="20" style="width:5rem;" />
   </div>
+  <div class="field-row">
+    <label style="font-size:.82rem;" data-tooltip="Confianza mínima HDBSCAN para pertenecer a un grupo. La mayoría de puntos puntúan 0.8–1.0; prueba 0.7–0.95 para afinar el ruido." data-placement="top">Umbral ruido</label>
+    <input type="number" id="grp-min-prob" value="0.50" min="0" max="1" step="0.01" style="width:5rem;" />
+  </div>
   <div class="field-row" style="padding-bottom:.15rem;display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap;">
     <button id="grp-btn" onclick="runGrupos()" style="margin:0;">Calcular grupos</button>
     <label style="font-size:.82rem;display:flex;align-items:center;gap:.3rem;margin:0;"
@@ -508,6 +512,7 @@ async function runGrupos() {
     embedder:          document.getElementById('grp-embedder').value || null,
     min_cluster_size:  parseInt(document.getElementById('grp-min-cluster').value) || 5,
     min_samples:       parseInt(document.getElementById('grp-min-samples').value) || 2,
+    min_prob:          parseFloat(document.getElementById('grp-min-prob').value) || 0.15,
     forzar_cpu:        document.getElementById('grp-cpu').checked,
   };
 

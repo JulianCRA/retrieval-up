@@ -1034,6 +1034,7 @@ def _run_grupos(params: dict, sq: queue.Queue) -> None:
             device=device,
             min_cluster_size=int(params.get("min_cluster_size", 5)),
             min_samples=int(params.get("min_samples", 2)),
+            min_prob=float(params.get("min_prob", 0.5)),
         )
         elapsed = round(_time.perf_counter() - t0, 2)
         emit(type="phase_done", phase="cluster", label="Agrupación completada",
