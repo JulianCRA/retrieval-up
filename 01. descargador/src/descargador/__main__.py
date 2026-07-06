@@ -101,6 +101,15 @@ def procesar_recurso(uri):
 
     except (DownloadError, ExtractorError) as e:
         print(f"[ERROR] Error al procesar '{uri}': {e}")
+        r_id = obtener_identificador(uri)
+        if not ju.cargar_registro(r_id):
+            archivo_detalle = DESCARGAS_DIR / r_id / "info.json"
+            ju.guardar_registro(r_id, {
+                "uri": uri,
+                "title": "",
+                "status": 0,
+                "archivo_detalle": str(archivo_detalle),
+            })
 
 def leer_directorio(directorio):
     archivos = []

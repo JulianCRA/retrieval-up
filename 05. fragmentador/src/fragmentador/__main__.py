@@ -144,22 +144,32 @@ def procesar(
 		with medir(f"carga_modelo_boundary ({boundary_id})"):
 			boundary_model = cargar_sentence_transformer(boundary_id, device)
 
+	fallos: list[str] = []
 	total = len(hashes)
 	for i, hash_id in enumerate(hashes, 1):
 		print(f"\n[PIPELINE] Fragmentando recurso {i} de {total}")
-		_procesar_hash(
-			hash_id,
-			spec=spec,
-			sizer=sizer,
-			embedder=embedder,
-			estrategia=estrategia,
-			overlap_pct=overlap_pct,
-			umbral=umbral,
-			min_tokens=min_tokens,
-			boundary_embedder=boundary_embedder,
-			boundary_model=boundary_model,
-			device=device,
-		)
+		try:
+			_procesar_hash(
+				hash_id,
+				spec=spec,
+				sizer=sizer,
+				embedder=embedder,
+				estrategia=estrategia,
+				overlap_pct=overlap_pct,
+				umbral=umbral,
+				min_tokens=min_tokens,
+				boundary_embedder=boundary_embedder,
+				boundary_model=boundary_model,
+				device=device,
+			)
+		except Exception as e:
+			print(f"[ERROR] Hash '{hash_id}': {e}")
+			fallos.append(hash_id)
+
+	if fallos:
+		print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
+		if len(fallos) >= total:
+			sys.exit(1)
 
 
 def _procesar_hash(
@@ -182,13 +192,22 @@ def _procesar_hash(
 		with medir("lectura_correcciones"):
 			data = ju.cargar_archivo(correcciones_path)
 		if not data:
-			print(f"[ERROR] No se pudo cargar '{correcciones_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se pudo cargar '{correcciones_path}'.")
 
 		transcripciones = data.get("transcripciones")
 		if not transcripciones:
-			print(f"[ERROR] No se encontraron transcripciones en '{correcciones_path}'.")
-			sys.exit(1)
+			print(f"[AVISO] No hay transcripciones en '{correcciones_path}' (audio sin voz detectada). Guardando fragmentos vacíos.")
+			fragmentos_path = folder / "fragmentos.json"
+			resultado_vacio = {
+				"estrategia": estrategia,
+				"num_fragmentos": 0,
+				"fragmentos": [],
+				"tiempos": crono.resumen(),
+			}
+			if ju.guardar_archivo(fragmentos_path, resultado_vacio):
+				ju.guardar_nodo(folder / "info.json", "status", 5)
+				ju.guardar_registro("status", 5, ruta=(hash_id,))
+			return
 
 		print(f"[OK] Correcciones cargadas desde '{correcciones_path}' (hash={hash_id})")
 		print(f"[INFO] Modelo corrector: {data.get('modelo_corrector', 'desconocido')}")
@@ -252,7 +271,7 @@ def _procesar_hash(
 			return
 
 		print(f"[ERROR] No se pudo guardar '{fragmentos_path}'.")
-		sys.exit(1)
+		raise RuntimeError(f"No se pudo guardar '{fragmentos_path}'.")
 
 
 def _guardar_historial(folder, embedder_id: str, resultado: dict):

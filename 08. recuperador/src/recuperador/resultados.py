@@ -49,11 +49,23 @@ def guardar_resultado_json(args, filas, tiempos, inicio: datetime, fin: datetime
 		print(f"[ERROR] No se pudo guardar el resultado: {e}")
 
 
-def guardar_resultado_db(args, filas, tiempos, inicio: datetime, fin: datetime) -> int | None:
+def guardar_resultado_db(
+	args,
+	filas,
+	tiempos,
+	inicio: datetime,
+	fin: datetime,
+	query_vector: bytes | None = None,
+	query_bm25: str | None = None,
+) -> int | None:
 	"""Persiste la búsqueda y sus resultados en la base de datos SQLite.
 
-	El campo *query_vector* queda en NULL; un paso posterior puede rellenarlo
-	con :func:`compartido.sqlite_utils.actualizar_query_vector`.
+	*query_vector* (embedding de la query como bytes float32) y *query_bm25*
+	(tokens BM25) se almacenan para que el módulo de analítica docente pueda
+	agrupar consultas semánticamente similares sin recodificarlas. Si no se
+	proveen, quedan en NULL y pueden rellenarse después con
+	:func:`compartido.sqlite_utils.actualizar_query_vector` /
+	:func:`compartido.sqlite_utils.actualizar_query_bm25`.
 
 	Devuelve el id de la búsqueda insertada, o None si hubo error.
 	"""
@@ -65,8 +77,8 @@ def guardar_resultado_db(args, filas, tiempos, inicio: datetime, fin: datetime) 
 		"inicio":        inicio.isoformat(timespec="seconds"),
 		"fin":           fin.isoformat(timespec="seconds"),
 		"query":         args.query,
-		"query_vector":  None,
-		"query_bm25":    None,
+		"query_vector":  query_vector,
+		"query_bm25":    query_bm25,
 		"embedder":      args.embedder,
 		"modo":          args.modo,
 		"top_k":         args.top_k,

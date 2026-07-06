@@ -1,3 +1,5 @@
+import sys
+
 from faster_whisper import BatchedInferencePipeline, WhisperModel
 import soundfile as sf
 
@@ -155,7 +157,7 @@ def transcribir_whisper(paths, modelo="small", perfil=None):
 				batch_size=params["batch_size"],
 				language="es",
 				without_timestamps=True,
-				log_progress=True,
+				log_progress=sys.stdout.isatty(),
 				clip_timestamps=clip_timestamps,
 				vad_filter=False,
 				condition_on_previous_text=False,
@@ -171,7 +173,7 @@ def transcribir_whisper(paths, modelo="small", perfil=None):
 				batch_size=params["batch_size"],
 				language="es",
 				without_timestamps=True,
-				log_progress=True,
+				log_progress=sys.stdout.isatty(),
 				clip_timestamps=clip_timestamps,
 				vad_filter=False,
 				condition_on_previous_text=False,

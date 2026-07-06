@@ -12,7 +12,7 @@ from compartido.utils import cronometrar, cronometro_activo, medir
 
 import importlib
 
-from compartido.bm25 import tokenizar, tokens_a_texto
+from compartido.bm25 import tokenizar_lote, tokens_a_texto
 
 def _parse_tag(valor: str) -> tuple[str, str]:
 	"""Parsea 'CLAVE=VALOR' y aborta si el formato es incorrecto."""
@@ -128,25 +128,43 @@ def procesar(
 ):
 	mod = importlib.import_module(f"indexador.{backend}")
 	db = mod.abrir(db_ruta)
+	fallos: list[str] = []
+	tablas_actualizadas: set[str] = set()
 	total = len(hashes)
 	for i, hash_id in enumerate(hashes, 1):
 		print(f"\n[PIPELINE] Indexando recurso {i} de {total}")
-		_procesar_hash(
-			hash_id,
-			db=db,
-			backend_mod=mod,
-			embedder=embedder,
-			tabla=tabla,
-			reclear=reclear,
-			tags=tags,
-		)
+		try:
+			nombre_tabla = _procesar_hash(
+				hash_id,
+				db=db,
+				backend_mod=mod,
+				embedder=embedder,
+				tabla=tabla,
+				reclear=reclear,
+				tags=tags,
+			)
+			if nombre_tabla:
+				tablas_actualizadas.add(nombre_tabla)
+		except Exception as e:
+			print(f"[ERROR] Hash '{hash_id}': {e}")
+			fallos.append(hash_id)
 		# Tras el primer hash, no recrear de nuevo en los siguientes.
 		reclear = False
+
+	if hasattr(mod, "finalizar_tabla"):
+		for nombre_tabla in sorted(tablas_actualizadas):
+			print(f"[PIPELINE] Finalizando indices de '{nombre_tabla}'")
+			mod.finalizar_tabla(db, nombre_tabla)
+
+	if fallos:
+		print(f"[ERROR] {len(fallos)} hash(es) fallaron: {', '.join(fallos)}")
+		if len(fallos) >= total:
+			sys.exit(1)
 
 
 @cronometrar(etiqueta="tokenizacion_bm25")
 def _tokenizar_fragmentos(fragmentos: list[dict]) -> list[list[str]]:
-	return [tokenizar(f["texto"]) for f in fragmentos]
+	return tokenizar_lote([f["texto"] for f in fragmentos])
 
 
 def _procesar_hash(
@@ -169,13 +187,12 @@ def _procesar_hash(
 		with medir("lectura_fragmentos"):
 			data = ju.cargar_archivo(fragmentos_path)
 		if not data:
-			print(f"[ERROR] No se pudo cargar '{fragmentos_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se pudo cargar '{fragmentos_path}'.")
 
 		fragmentos = data.get("fragmentos")
 		if not fragmentos:
-			print(f"[ERROR] No hay fragmentos en '{fragmentos_path}'.")
-			sys.exit(1)
+			print(f"[AVISO] No hay fragmentos en '{fragmentos_path}' (audio sin voz detectada). Saltando indexación.")
+			return None
 
 		print(f"[OK] Fragmentos cargados: {len(fragmentos)} (hash={hash_id})")
 
@@ -185,12 +202,12 @@ def _procesar_hash(
 		titulo = info.get("title") or ""
 		uri = descarga.get("uri") or ""
 		fuente = descarga.get("fuente") or ""
+		duracion = descarga.get("duracion") or None
 
 		# --- Vectores ---
 		meta_vec = ju.cargar_archivo(vectores_meta_path)
 		if not meta_vec:
-			print(f"[ERROR] No se pudo cargar '{vectores_meta_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se pudo cargar '{vectores_meta_path}'.")
 
 		# --- Tiempos de etapas anteriores ---
 		_transcripciones_meta = ju.cargar_archivo(folder / "transcripciones.json")
@@ -206,19 +223,16 @@ def _procesar_hash(
 
 		embedder_id = embedder or meta_vec.get("embedder")
 		if not embedder_id:
-			print(f"[ERROR] No se pudo determinar el embedder para '{hash_id}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se pudo determinar el embedder para '{hash_id}'.")
 		if embedder and meta_vec.get("embedder") and embedder != meta_vec["embedder"]:
-			print(
-				f"[ERROR] El embedder solicitado '{embedder}' no coincide con "
+			raise RuntimeError(
+				f"El embedder solicitado '{embedder}' no coincide con "
 				f"el de vectores.json ('{meta_vec['embedder']}') para hash={hash_id}."
 			)
-			sys.exit(1)
 
 		dim = int(meta_vec.get("dim") or 0)
 		if dim <= 0:
-			print(f"[ERROR] 'dim' invalido en '{vectores_meta_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"'dim' invalido en '{vectores_meta_path}'.")
 
 		# --- Deduplicacion ---
 		nombre_tabla = tabla or embedder_id
@@ -232,16 +246,20 @@ def _procesar_hash(
 			with medir("carga_npz"):
 				npz = np.load(vectores_npz_path)
 		except FileNotFoundError:
-			print(f"[ERROR] No se encontro '{vectores_npz_path}'.")
-			sys.exit(1)
+			raise RuntimeError(f"No se encontro '{vectores_npz_path}'.")
 		embeddings = npz["embeddings"]
 		if embeddings.shape != (len(fragmentos), dim):
-			print(
-				f"[ERROR] Shape de embeddings {embeddings.shape} no coincide con "
+			raise RuntimeError(
+				f"Shape de embeddings {embeddings.shape} no coincide con "
 				f"(num_fragmentos={len(fragmentos)}, dim={dim})."
 			)
-			sys.exit(1)
 		embeddings = embeddings.astype(np.float32, copy=False)
+
+		nan_mask = ~np.isfinite(embeddings).all(axis=1)
+		if nan_mask.any():
+			n_bad = int(nan_mask.sum())
+			print(f"[ADVERTENCIA] {n_bad} embedding(s) con NaN/Inf en '{nombre_tabla}'. Reemplazando con ceros.")
+			embeddings[nan_mask] = 0.0
 
 		# --- BM25: tokenizar ---
 		tokens_por_fragmento = _tokenizar_fragmentos(fragmentos)
@@ -284,7 +302,7 @@ def _procesar_hash(
 
 		# --- SQLite ---
 		iu.crear_tablas(nombre_tabla)
-		iu.escribir_recurso(hash_id, titulo, uri, fuente, tiempos_json=tiempos_json, thumbnail=thumbnail)
+		iu.escribir_recurso(hash_id, titulo, uri, fuente, duracion=duracion, tiempos_json=tiempos_json, thumbnail=thumbnail)
 		with medir("escritura_sqlite"):
 			iu.escribir_chunks(chunk_filas, nombre_tabla)
 
@@ -295,6 +313,7 @@ def _procesar_hash(
 		ju.guardar_registro("status", 7, ruta=(hash_id,))
 
 	print(f"[TIEMPOS] hash={hash_id}: {crono.resumen()}")
+	return nombre_tabla
 
 
 def _cargar_thumbnail(folder) -> bytes | None:

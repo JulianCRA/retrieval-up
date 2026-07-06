@@ -8,6 +8,9 @@ _silero_model = None  # per-worker global
 
 def _init_worker():
     global _silero_model
+    # Hide CUDA from worker processes — they run CPU-only.
+    # Without this, each worker loads all CUDA DLLs, exhausting the Windows paging file.
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
     import torch
     from silero_vad import load_silero_vad
     torch.set_num_threads(1)
@@ -49,6 +52,8 @@ def vad_silero(audio, samplerate, umbral=0.4, duracion_minima=0.25, duracion_sil
         print(f"[WARNING] Se solicitaron {n_workers} workers, pero solo se detectaron {real_cpu_count} CPUs físicas. Usando {real_cpu_count} workers.")
         n_workers = real_cpu_count
     
+    n_workers = (n_workers // 4) * 3
+
     total = len(audio_mono)
     chunk_size = total // n_workers
     overlap = samplerate  # 1s overlap at boundaries

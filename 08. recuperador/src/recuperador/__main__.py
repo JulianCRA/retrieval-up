@@ -1,10 +1,12 @@
 import argparse
 from datetime import datetime
 
+import numpy as np
+
 from compartido.embedders import listar_ids
 from compartido.utils import crear_perfil_hardware, cronometro_activo
 
-from recuperador.busqueda import buscar
+from recuperador.busqueda import buscar, tokenizar_query_bm25, vectorizar_query
 from recuperador.fusionado import rrf, wrrf
 from recuperador.rerank import RERANKERS, rerank
 from recuperador.resultados import guardar_resultado_json, guardar_resultado_db, imprimir_resultados
@@ -94,7 +96,21 @@ def main():
 	fin = datetime.now()
 	imprimir_resultados(args.query, args.modo, filas, reranker=args.reranker, inicio=inicio, fin=fin)
 	guardar_resultado_json(args, filas, tiempos, inicio=inicio, fin=fin)
-	guardar_resultado_db(args, filas, tiempos, inicio=inicio, fin=fin)
+
+	# Enriquecer el registro de actividad para el modulo de analitica docente:
+	# el vector de la query permite agrupar consultas similares sin recodificarlas.
+	query_vector = None
+	query_bm25 = None
+	if args.modo in ("rrf", "wrrf", "hibrido", "denso"):
+		vec = vectorizar_query(args.query, args.embedder, device=device)
+		query_vector = np.asarray(vec, dtype=np.float32).tobytes()
+	if args.modo in ("rrf", "wrrf", "hibrido", "bm25"):
+		query_bm25 = tokenizar_query_bm25(args.query)
+
+	guardar_resultado_db(
+		args, filas, tiempos, inicio=inicio, fin=fin,
+		query_vector=query_vector, query_bm25=query_bm25,
+	)
 
 
 if __name__ == "__main__":

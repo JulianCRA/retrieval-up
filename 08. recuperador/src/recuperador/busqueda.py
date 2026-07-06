@@ -8,23 +8,34 @@ from compartido.utils import cronometrar, medir
 from compartido.rutas import INDICE_DIR
 
 FACTOR_OVERSAMPLING = 4
+_db = None
+_tablas_disponibles: set[str] | None = None
+_tabla_cache: dict[str, object] = {}
 	
 @cronometrar(etiqueta="apertura_tabla")
 def abrir_tabla(nombre):
-	db = lancedb.connect(INDICE_DIR)
-	tablas = list(db.list_tables().tables)
+	global _db, _tablas_disponibles
+	if nombre in _tabla_cache:
+		return _tabla_cache[nombre]
 
-	print(f"Tablas disponibles en el indice: {tablas}")
-	if nombre not in tablas:
+	if _db is None:
+		_db = lancedb.connect(INDICE_DIR)
+	if _tablas_disponibles is None:
+		tablas = list(_db.list_tables().tables)
+		_tablas_disponibles = set(tablas)
+		print(f"Tablas disponibles en el indice: {tablas}")
+
+	if nombre not in _tablas_disponibles:
 		print(f"Error: No se encontro una tabla para el embedder '{nombre}' en el indice.")
 		exit(1)
 		return None
 
-	tabla = db.open_table(nombre)
+	tabla = _db.open_table(nombre)
 	if tabla.count_rows() == 0:
 		print(f"Error: La tabla para el embedder '{nombre}' esta vacia.")
 		exit(1)
 		return None
+	_tabla_cache[nombre] = tabla
 	
 	return tabla
 
@@ -102,3 +113,100 @@ def buscar(nombre_embedder, query, modo, top_k=5, device: str = "cpu"):
 		return semantica, sintactica
         
 	return None, None
+
+
+def buscar_completo(
+	query: str,
+	embedder: str,
+	modo: str,
+	top_k: int = 10,
+	reranker: str | None = None,
+	peso_semantica: float = 0.7,
+	device: str = "cpu",
+) -> dict:
+	"""Búsqueda completa con todos los scores necesarios para la GUI.
+
+	Devuelve un dict con:
+	  - resultados: lista de chunks con scores aplanados y segmentos parseados
+	  - sort_options: modos de ordenación disponibles según los parámetros usados
+
+	Raises:
+		RuntimeError: si no existe una tabla para el embedder indicado.
+	"""
+	import json as _json
+	from recuperador.fusionado import rrf, wrrf
+	from recuperador.rerank import rerank as _rerank
+
+	try:
+		semantica, sintactica = buscar(embedder, query, modo, top_k, device=device)
+	except SystemExit as exc:
+		raise RuntimeError(
+			f"No se pudo acceder al índice para el embedder «{embedder}». "
+			"Comprueba que existe una tabla indexada con ese nombre."
+		) from exc
+
+	if modo in ("rrf", "hibrido"):
+		filas = rrf(semantica, sintactica)
+	elif modo == "wrrf":
+		filas = wrrf(semantica, sintactica, peso_semantica=peso_semantica)
+	elif modo == "bm25":
+		filas = list(sintactica)
+	else:  # denso
+		filas = list(semantica)
+
+	# Asignar rank pre-rerank (posición en la lista de fusión/recuperación)
+	for rank, fila in enumerate(filas, 1):
+		fila["rank_fusion"] = rank
+
+	# Aplicar reranker si se solicitó
+	if reranker:
+		filas = _rerank(query, filas, reranker, device=device)
+		for rank, fila in enumerate(filas, 1):
+			fila["rank_reranker"] = rank
+
+	filas = filas[:top_k]
+
+	# Opciones de ordenación disponibles según modo+reranker
+	sort_options: list[str] = []
+	if reranker:
+		sort_options.append("reranker")
+	if modo in ("rrf", "wrrf", "hibrido"):
+		sort_options.extend(["rrf", "semantico", "sintactico"])
+	elif modo == "denso":
+		sort_options.append("semantico")
+	elif modo == "bm25":
+		sort_options.append("sintactico")
+
+	_EXCLUIR = {"vector", "texto_bm25"}
+	resultados: list[dict] = []
+	for fila in filas:
+		item = {k: v for k, v in fila.items() if k not in _EXCLUIR}
+		so = item.pop("scores_origen", None) or {}
+		ro = item.pop("ranks_origen", None) or {}
+		if modo in ("rrf", "wrrf", "hibrido"):
+			item["score_denso"] = so.get("denso")
+			item["score_bm25"]  = so.get("bm25")
+			item["rank_denso"]  = ro.get("denso")
+			item["rank_bm25"]   = ro.get("bm25")
+		else:
+			item["score_denso"] = fila.get("score") if modo == "denso" else None
+			item["score_bm25"]  = fila.get("score") if modo == "bm25"  else None
+			item["rank_denso"]  = None
+			item["rank_bm25"]   = None
+		# Parsear segmentos_json → lista
+		segs_raw = item.pop("segmentos_json", None) or "[]"
+		try:
+			item["segmentos"] = _json.loads(segs_raw) if isinstance(segs_raw, str) else (segs_raw or [])
+		except (TypeError, ValueError):
+			item["segmentos"] = []
+		resultados.append(item)
+
+	return {
+		"query":          query,
+		"embedder":       embedder,
+		"modo":           modo,
+		"reranker":       reranker,
+		"sort_options":   sort_options,
+		"num_resultados": len(resultados),
+		"resultados":     resultados,
+	}

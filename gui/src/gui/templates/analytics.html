@@ -1,0 +1,655 @@
+{% extends "base.html" %}
+{% block title %}Analítica — retrieval-up{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Layout ── */
+  .section-title {
+    font-size: 1.05rem; font-weight: 700;
+    margin: 1.6rem 0 0.6rem;
+    border-bottom: 1px solid var(--pico-muted-border-color);
+    padding-bottom: 0.35rem;
+  }
+
+  /* ── Stat cards (corpus) ── */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .stat-card {
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    padding: 0.7rem 0.9rem;
+    background: var(--pico-card-background-color);
+  }
+  .stat-value {
+    font-size: 1.55rem; font-weight: 700;
+    line-height: 1.1; margin-bottom: 0.2rem;
+  }
+  .stat-label { font-size: 0.78rem; color: var(--pico-muted-color); }
+
+  /* ── Progress strips ── */
+  .phase-strip {
+    display: flex; flex-wrap: wrap; gap: 0.35rem;
+    align-items: center; padding: 0.4rem 0 0.2rem;
+  }
+  .ph-chip {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.79rem;
+    border: 1px solid var(--pico-muted-border-color);
+    color: var(--pico-muted-color); background: transparent;
+    white-space: nowrap; transition: all 0.2s;
+  }
+  .ph-chip.running {
+    border-color: var(--pico-primary); color: var(--pico-primary);
+    background: var(--pico-primary-background); font-weight: 600;
+  }
+  .ph-chip.done {
+    border-color: var(--pico-ins-color, #2d9a4e);
+    color: var(--pico-ins-color, #2d9a4e);
+    background: color-mix(in srgb, var(--pico-ins-color, #2d9a4e) 10%, transparent);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .ph-chip.running .ph-icon { display: inline-block; animation: spin 1s linear infinite; }
+
+  /* ── Data tables ── */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-top: 0.5rem; }
+  .data-table th {
+    text-align: left; padding: 0.3rem 0.6rem;
+    border-bottom: 2px solid var(--pico-muted-border-color);
+    font-size: 0.78rem; color: var(--pico-muted-color);
+    font-weight: 600; white-space: nowrap;
+  }
+  .data-table td {
+    padding: 0.3rem 0.6rem;
+    border-bottom: 1px solid var(--pico-muted-border-color);
+    vertical-align: middle;
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: var(--pico-primary-background); }
+  .num-cell { text-align: right; font-variant-numeric: tabular-nums; }
+  .rank-cell { text-align: center; font-size: 0.75rem; color: var(--pico-muted-color); width: 2.5rem; }
+  .rate-bar-wrap { width: 90px; }
+  .rate-bar {
+    height: 6px; border-radius: 3px;
+    background: var(--pico-primary);
+    transition: width 0.4s;
+  }
+
+  /* ── Tags mini-list ── */
+  .tag-list { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.3rem; }
+  .tag-pill {
+    padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem;
+    background: var(--pico-muted-border-color); color: var(--pico-muted-color);
+  }
+
+  /* ── Tabs ── */
+  .tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--pico-muted-border-color); margin: 0.75rem 0 0; }
+  .tab-btn {
+    padding: 0.4rem 1.1rem; font-size: 0.87rem; font-weight: 600;
+    border: none; border-bottom: 2px solid transparent;
+    background: transparent; cursor: pointer; color: var(--pico-muted-color);
+    margin-bottom: -2px; transition: all 0.15s;
+  }
+  .tab-btn:hover { color: var(--pico-primary); }
+  .tab-btn.active { color: var(--pico-primary); border-bottom-color: var(--pico-primary); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── Cluster cards ── */
+  .cluster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; margin-top: 0.5rem; }
+  .cluster-card {
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    padding: 0.7rem 0.9rem;
+    background: var(--pico-card-background-color);
+  }
+  .cluster-card.no-sel { border-color: var(--pico-del-color, #e74c3c); }
+  .cluster-label { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.35rem; }
+  .cluster-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.4rem; }
+  .cluster-tag {
+    display: inline-block; font-size: 0.73rem; font-weight: 500;
+    background: var(--pico-primary-background, #e8f0fe); color: var(--pico-primary);
+    border-radius: 999px; padding: 0.1rem 0.55rem; white-space: nowrap;
+  }
+  .cluster-meta { font-size: 0.76rem; color: var(--pico-muted-color); margin-bottom: 0.4rem; }
+  .cluster-queries { font-size: 0.82rem; margin: 0; padding-left: 1.1rem; }
+  .cluster-queries li { margin-bottom: 0.15rem; }
+  .noise-list { font-size: 0.82rem; color: var(--pico-muted-color); columns: 2; margin-top: 0.3rem; }
+  .noise-list li { margin-bottom: 0.15rem; }
+
+  /* ── Modal ── */
+  #grp-modal article { max-width: 640px; width: 90vw; max-height: 80vh; display: flex; flex-direction: column; }
+  #grp-modal header { flex-shrink: 0; }
+  #grp-modal .modal-body { overflow-y: auto; flex: 1; padding: 0 0.2rem; }
+  .modal-query-list { font-size: 0.88rem; margin: 0; padding-left: 1.2rem; }
+  .modal-query-list li { padding: 0.2rem 0; border-bottom: 1px solid var(--pico-muted-border-color); }
+  .modal-query-list li:last-child { border-bottom: none; }
+  .cluster-see-all {
+    font-size: 0.76rem; cursor: pointer; background: none; border: none; padding: 0;
+    color: var(--pico-primary); text-decoration: underline; margin-top: 0.3rem;
+  }
+
+  /* ── Error / empty states ── */
+  .empty-hint { color: var(--pico-muted-color); font-size: 0.88rem; padding: 1.5rem 0; }
+  .inline-error { color: var(--pico-del-color, #e74c3c); font-size: 0.88rem; margin: 0.5rem 0; }
+
+  /* ── Params form ── */
+  .params-inline { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: flex-end; margin: 0.6rem 0 0.5rem; }
+  .params-inline .field-row { margin: 0; }
+  .params-inline select, .params-inline input[type=number] { margin: 0; }
+</style>
+
+<h2>Analítica docente</h2>
+
+{# ──────────────────────────────────────────────────────────── Corpus ──── #}
+<h3 class="section-title">Corpus indexado</h3>
+
+{% if corpus and corpus.num_recursos %}
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ corpus.num_recursos }}</div>
+    <div class="stat-label">Recursos</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ corpus.duracion_total_horas }}</div>
+    <div class="stat-label">Horas de contenido</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ corpus.num_fuentes }}</div>
+    <div class="stat-label">Fuentes distintas</div>
+  </div>
+  {% for modelo, n in corpus.chunks_por_modelo.items() %}
+  <div class="stat-card">
+    <div class="stat-value">{{ n }}</div>
+    <div class="stat-label">Chunks · {{ modelo }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if corpus.tags %}
+<p style="font-size:.83rem;color:var(--pico-muted-color);margin:.25rem 0 .15rem;">Etiquetas más frecuentes:</p>
+<div class="tag-list">
+  {% for tag, n in corpus.tags.items() %}
+  <span class="tag-pill">{{ tag }} <strong>{{ n }}</strong></span>
+  {% endfor %}
+</div>
+{% endif %}
+{% else %}
+<p class="empty-hint">No hay recursos indexados todavía. Procesa contenido desde <a href="/pipeline">Pipeline</a>.</p>
+{% endif %}
+
+{# ─────────────────────────────────────────── Comportamiento de búsqueda ── #}
+<h3 class="section-title">Comportamiento de búsqueda</h3>
+
+<div class="params-inline">
+  <div class="field-row">
+    <label style="font-size:.82rem;" data-tooltip="Filtra las tablas al embedder elegido. 'Todos' incluye todas las búsquedas." data-placement="top">Embedder (filtro)</label>
+    <select id="act-embedder" style="min-width:10rem;">
+      <option value="">Todos</option>
+      <option value="qwen3-0.6b">qwen3-0.6b</option>
+      <option value="bge-m3">bge-m3</option>
+      <option value="e5-large-instruct">e5-large-instruct</option>
+      <option value="granite-107m">granite-107m</option>
+      <option value="jina-v3">jina-v3</option>
+    </select>
+  </div>
+  <div class="field-row">
+    <label style="font-size:.82rem;" data-tooltip="Número máximo de vídeos a mostrar en cada tabla." data-placement="top">Top N</label>
+    <input type="number" id="act-top-n" value="20" min="1" max="100" style="width:5rem;" />
+  </div>
+  <div class="field-row">
+    <label style="font-size:.82rem;" data-tooltip="Solo cuenta apariciones en las primeras N posiciones. Vacío = todas las posiciones." data-placement="top">Rank máx (encontrados)</label>
+    <input type="number" id="act-rank-max" value="" min="1" max="50" placeholder="todos" style="width:6rem;" />
+  </div>
+  <div class="field-row" style="padding-bottom:.15rem;">
+    <button id="act-load-btn" onclick="loadActividadTab()" style="margin:0;">Cargar</button>
+  </div>
+</div>
+
+<div id="act-progress" hidden>
+  <div class="phase-strip" id="act-chips"></div>
+</div>
+<div id="act-error" class="inline-error" hidden></div>
+
+{# Tab bar #}
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('encontrados',this)">Más encontrados</button>
+  <button class="tab-btn" onclick="switchTab('seleccionados',this)">Más seleccionados</button>
+  <button class="tab-btn" onclick="switchTab('comparar',this)">Comparación</button>
+</div>
+
+<div id="tab-encontrados" class="tab-panel active">
+  <p class="empty-hint" id="enc-hint">Haz clic en <em>Cargar</em> para calcular.</p>
+  <div id="enc-table"></div>
+</div>
+
+<div id="tab-seleccionados" class="tab-panel">
+  <p class="empty-hint" id="sel-hint">Haz clic en <em>Cargar</em> para calcular.</p>
+  <div id="sel-table"></div>
+</div>
+
+<div id="tab-comparar" class="tab-panel">
+  <p class="empty-hint" id="cmp-hint">Haz clic en <em>Cargar</em> para calcular.</p>
+  <div id="cmp-table"></div>
+</div>
+
+{# ─────────────────────────────────────────────── Agrupación de consultas ── #}
+<h3 class="section-title">Agrupación de consultas</h3>
+<p style="font-size:.84rem;color:var(--pico-muted-color);margin-bottom:.6rem;">
+  Agrupa semánticamente todas las consultas registradas con HDBSCAN y extrae
+  etiquetas interpretables con KeyBERT. Se calcula bajo demanda (puede tardar
+  varios segundos si hay muchas consultas o el modelo de embedding no está cargado).
+</p>
+
+<div class="params-inline">
+  <div class="field-row">
+    <label style="font-size:.82rem;" data-tooltip="Filtra qué búsquedas del historial se agrupan. El embedding siempre usa qwen3-0.6b." data-placement="top">Filtrar historial</label>
+    <select id="grp-embedder" style="min-width:10rem;">
+      <option value="">Todos</option>
+      <option value="qwen3-0.6b">qwen3-0.6b</option>
+      <option value="bge-m3">bge-m3</option>
+      <option value="e5-large-instruct">e5-large-instruct</option>
+      <option value="granite-107m">granite-107m</option>
+      <option value="jina-v3">jina-v3</option>
+    </select>
+  </div>
+  <div class="field-row">
+    <label style="font-size:.82rem;" data-tooltip="Mínimo de consultas para que exista un grupo. Más alto = grupos más sólidos; más bajo = captura temas pequeños." data-placement="top">Tamaño mín. grupo</label>
+    <input type="number" id="grp-min-cluster" value="5" min="2" max="50" style="width:5rem;" />
+  </div>
+  <div class="field-row">
+    <label style="font-size:.82rem;" data-tooltip="Vecinos mínimos para que un punto sea núcleo. Más alto = más ruido, clusters más densos. Independiente del tamaño mínimo." data-placement="top">min_samples</label>
+    <input type="number" id="grp-min-samples" value="2" min="1" max="20" style="width:5rem;" />
+  </div>
+  <div class="field-row">
+    <label style="font-size:.82rem;" data-tooltip="Confianza mínima HDBSCAN para pertenecer a un grupo. La mayoría de puntos puntúan 0.8–1.0; prueba 0.7–0.95 para afinar el ruido." data-placement="top">Umbral ruido</label>
+    <input type="number" id="grp-min-prob" value="0.50" min="0" max="1" step="0.01" style="width:5rem;" />
+  </div>
+  <div class="field-row" style="padding-bottom:.15rem;display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap;">
+    <button id="grp-btn" onclick="runGrupos()" style="margin:0;">Calcular grupos</button>
+    <label style="font-size:.82rem;display:flex;align-items:center;gap:.3rem;margin:0;"
+           data-tooltip="Usa CPU aunque haya GPU disponible. Útil si la GPU tiene poca VRAM o está ocupada con otra tarea." data-placement="top">
+      <input type="checkbox" id="grp-cpu" role="switch" style="margin:0;" />
+      Forzar CPU
+    </label>
+  </div>
+</div>
+
+<div id="grp-progress" hidden>
+  <div class="phase-strip" id="grp-chips"></div>
+  <p id="grp-hint" style="font-size:.79rem;color:var(--pico-muted-color);min-height:1.1rem;margin:.1rem 0;"></p>
+</div>
+<div id="grp-error" class="inline-error" hidden></div>
+<div id="grp-results"></div>
+
+{# ── Modal: all queries in a group ── #}
+<dialog id="grp-modal">
+  <article>
+    <header>
+      <button rel="prev" aria-label="Cerrar" onclick="document.getElementById('grp-modal').close()"></button>
+      <h4 id="grp-modal-title" style="margin:0;">Consultas del grupo</h4>
+    </header>
+    <div class="modal-body">
+      <p id="grp-modal-meta" style="font-size:.8rem;color:var(--pico-muted-color);margin:.1rem 0 .6rem;"></p>
+      <ul id="grp-modal-list" class="modal-query-list"></ul>
+    </div>
+  </article>
+</dialog>
+
+<script>
+/* ═══════════════════════════════════════════════════ helpers ══ */
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+/* ═══════════════════════════════════════════ phase chips ══ */
+function addChip(containerId, id, label) {
+  const chip = document.createElement('span');
+  chip.className = 'ph-chip running';
+  chip.id = 'chip-' + id;
+  chip.innerHTML = `<span class="ph-icon">⧘</span> ${esc(label)}`;
+  document.getElementById(containerId).appendChild(chip);
+  document.getElementById(containerId).closest('[hidden]')?.removeAttribute('hidden')
+    || document.getElementById(containerId).parentElement.removeAttribute('hidden');
+}
+function doneChip(id, label, extra) {
+  const chip = document.getElementById('chip-' + id);
+  if (!chip) return;
+  chip.className = 'ph-chip done';
+  chip.innerHTML = `✓ ${esc(label)}` + (extra ? ` <span style="opacity:.65;font-size:.7rem;">${esc(extra)}</span>` : '');
+}
+function clearChips(containerId) {
+  const el = document.getElementById(containerId);
+  if (el) el.innerHTML = '';
+  el?.closest('[hidden]') || el?.parentElement?.setAttribute('hidden', '');
+}
+
+/* ═══════════════════════════════════════ activity tables ══ */
+async function loadActividadTab() {
+  const btn = document.getElementById('act-load-btn');
+  btn.setAttribute('aria-busy', 'true');
+  btn.disabled = true;
+  document.getElementById('act-error').hidden = true;
+  clearChips('act-chips');
+  document.getElementById('act-progress').hidden = false;
+
+  const embedder = document.getElementById('act-embedder').value;
+  const topN     = parseInt(document.getElementById('act-top-n').value) || 20;
+  const rankMax  = parseInt(document.getElementById('act-rank-max').value) || '';
+
+  let chip_n = 0;
+  const cid = () => 'act-' + (chip_n++);
+
+  try {
+    /* encontrados */
+    const cEnc = cid();
+    addChip('act-chips', cEnc, 'Calculando más encontrados…');
+    const qEnc = new URLSearchParams({ top_n: topN, ...(embedder && { embedder }), ...(rankMax && { rank_max: rankMax }) });
+    const t0 = performance.now();
+    const rEnc = await fetch('/api/analytics/encontrados?' + qEnc).then(r => r.json());
+    doneChip(cEnc, 'Encontrados', ((performance.now()-t0)/1000).toFixed(2) + 's');
+    if (rEnc.ok) renderEncTable(rEnc.filas, rEnc.total_busquedas);
+    else { document.getElementById('enc-hint').textContent = rEnc.error || 'Error'; }
+
+    /* seleccionados */
+    const cSel = cid();
+    addChip('act-chips', cSel, 'Calculando más seleccionados…');
+    const qSel = new URLSearchParams({ top_n: topN, ...(embedder && { embedder }) });
+    const t1 = performance.now();
+    const rSel = await fetch('/api/analytics/seleccionados?' + qSel).then(r => r.json());
+    doneChip(cSel, 'Seleccionados', ((performance.now()-t1)/1000).toFixed(2) + 's');
+    if (rSel.ok) {
+      renderSelTable(rSel.filas, rSel.total_selecciones);
+      renderCmpTable(rSel.comparar);
+    } else {
+      document.getElementById('sel-hint').textContent = rSel.error || 'Error';
+    }
+  } catch(e) {
+    document.getElementById('act-error').textContent = '⚠ ' + e.message;
+    document.getElementById('act-error').hidden = false;
+  } finally {
+    btn.removeAttribute('aria-busy');
+    btn.disabled = false;
+    document.getElementById('act-progress').hidden = true;
+  }
+}
+
+function renderEncTable(filas, totalBusquedas) {
+  const hint = document.getElementById('enc-hint');
+  const wrap = document.getElementById('enc-table');
+  if (!filas.length) {
+    hint.textContent = 'Sin datos. Las búsquedas realizadas con el recuperador o la GUI aparecerán aquí.';
+    hint.hidden = false; wrap.innerHTML = '';
+    return;
+  }
+  hint.hidden = true;
+  const meta = totalBusquedas != null ? `<p style="font-size:.8rem;color:var(--pico-muted-color);margin:.3rem 0 .5rem;">Total de búsquedas registradas: <strong>${totalBusquedas}</strong></p>` : '';
+  wrap.innerHTML = meta + `
+<div style="overflow-x:auto;">
+<table class="data-table">
+  <thead><tr>
+    <th class="rank-cell">#</th>
+    <th>Vídeo</th>
+    <th class="num-cell">Apariciones</th>
+    <th class="num-cell">Búsquedas distintas</th>
+  </tr></thead>
+  <tbody>
+    ${filas.map(f => `<tr>
+      <td class="rank-cell">${f.rank}</td>
+      <td>${esc(f.titulo || f.video_id)}</td>
+      <td class="num-cell">${f.apariciones}</td>
+      <td class="num-cell">${f.busquedas_distintas}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>
+</div>`;
+}
+
+function renderSelTable(filas, totalSel) {
+  const hint = document.getElementById('sel-hint');
+  const wrap = document.getElementById('sel-table');
+  if (!filas.length) {
+    hint.textContent = 'Sin selecciones registradas. Las interacciones del usuario con los resultados de búsqueda aparecerán aquí.';
+    hint.hidden = false; wrap.innerHTML = '';
+    return;
+  }
+  hint.hidden = true;
+  const meta = totalSel != null ? `<p style="font-size:.8rem;color:var(--pico-muted-color);margin:.3rem 0 .5rem;">Total de selecciones registradas: <strong>${totalSel}</strong></p>` : '';
+  wrap.innerHTML = meta + `
+<div style="overflow-x:auto;">
+<table class="data-table">
+  <thead><tr>
+    <th class="rank-cell">#</th>
+    <th>Vídeo</th>
+    <th class="num-cell">Selecciones</th>
+  </tr></thead>
+  <tbody>
+    ${filas.map(f => `<tr>
+      <td class="rank-cell">${f.rank}</td>
+      <td>${esc(f.titulo || f.video_id)}</td>
+      <td class="num-cell">${f.selecciones}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>
+</div>`;
+}
+
+function renderCmpTable(filas) {
+  const hint = document.getElementById('cmp-hint');
+  const wrap = document.getElementById('cmp-table');
+  if (!filas.length) {
+    hint.textContent = 'Sin datos para comparar.';
+    hint.hidden = false; wrap.innerHTML = '';
+    return;
+  }
+  hint.hidden = true;
+  const maxAp = Math.max(...filas.map(f => f.apariciones || 0), 1);
+  wrap.innerHTML = `
+<div style="overflow-x:auto;">
+<table class="data-table">
+  <thead><tr>
+    <th>Vídeo</th>
+    <th class="num-cell">Apariciones</th>
+    <th class="num-cell">Selecciones</th>
+    <th>Tasa (sel/ap)</th>
+  </tr></thead>
+  <tbody>
+    ${filas.map(f => {
+      const tasa = f.tasa_seleccion != null ? (f.tasa_seleccion * 100).toFixed(1) + '%' : '—';
+      const pct  = f.tasa_seleccion != null ? Math.round(f.tasa_seleccion * 100) : 0;
+      return `<tr>
+        <td>${esc(f.titulo || f.video_id)}</td>
+        <td class="num-cell">${f.apariciones}</td>
+        <td class="num-cell">${f.selecciones}</td>
+        <td><div style="display:flex;align-items:center;gap:.5rem;">
+          <div class="rate-bar-wrap"><div class="rate-bar" style="width:${pct}%;"></div></div>
+          <span style="font-size:.8rem;white-space:nowrap;">${tasa}</span>
+        </div></td>
+      </tr>`;
+    }).join('')}
+  </tbody>
+</table>
+</div>`;
+}
+
+/* ═══════════════════════════════════════════ group modal ══ */
+let _grupoData = [];
+function openGrupoModal(gi) {
+  const g = _grupoData[gi];
+  if (!g) return;
+  document.getElementById('grp-modal-title').textContent = g.etiqueta;
+  document.getElementById('grp-modal-meta').textContent =
+    `${g.tamano} consulta${g.tamano!==1?'s':''} · frec. ${g.frecuencia_total} · selec. ${g.selecciones_total}`;
+  const ul = document.getElementById('grp-modal-list');
+  ul.innerHTML = g.consultas.map(q => `<li>${esc(q)}</li>`).join('');
+  document.getElementById('grp-modal').showModal();
+}
+
+/* ═════════════════════════════════════════ query clusters ══ */
+async function runGrupos() {
+  const btn = document.getElementById('grp-btn');
+  btn.setAttribute('aria-busy', 'true');
+  btn.disabled = true;
+  document.getElementById('grp-error').hidden = true;
+  document.getElementById('grp-results').innerHTML = '';
+  document.getElementById('grp-hint').textContent = '';
+  clearChips('grp-chips');
+  document.getElementById('grp-progress').hidden = false;
+
+  const body = {
+    embedder:          document.getElementById('grp-embedder').value || null,
+    min_cluster_size:  parseInt(document.getElementById('grp-min-cluster').value) || 5,
+    min_samples:       parseInt(document.getElementById('grp-min-samples').value) || 2,
+    min_prob:          parseFloat(document.getElementById('grp-min-prob').value) || 0.15,
+    forzar_cpu:        document.getElementById('grp-cpu').checked,
+  };
+
+  try {
+    const resp = await fetch('/api/analytics/grupos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const { job_id } = await resp.json();
+    if (!job_id) throw new Error('No se recibió job_id');
+    await streamGrupos(job_id);
+  } catch(e) {
+    document.getElementById('grp-error').textContent = '⚠ ' + e.message;
+    document.getElementById('grp-error').hidden = false;
+  } finally {
+    btn.removeAttribute('aria-busy');
+    btn.disabled = false;
+  }
+}
+
+function streamGrupos(jobId) {
+  return new Promise((resolve, reject) => {
+    const sse = new EventSource(`/api/analytics/grupos/stream/${encodeURIComponent(jobId)}`);
+    sse.onmessage = (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+
+      switch(msg.type) {
+        case 'phase_start': {
+          const id = 'grp-ph-' + msg.phase;
+          addChip('grp-chips', id, msg.label);
+          document.getElementById('grp-hint').textContent = msg.label;
+          break;
+        }
+        case 'phase_done': {
+          // Mark the last still-running chip as done (robust to phase key mismatch).
+          const running = document.querySelectorAll('#grp-chips .ph-chip.running');
+          if (running.length) {
+            const chip = running[running.length - 1];
+            chip.className = 'ph-chip done';
+            const extra = msg.elapsed ? msg.elapsed + 's' : '';
+            const detail = msg.n_grupos != null ? `${msg.n_grupos} grupo${msg.n_grupos !== 1 ? 's' : ''}` : (msg.n_consultas != null ? `${msg.n_consultas} consultas` : '');
+            const suffix = [extra, detail].filter(Boolean).join(' · ');
+            chip.innerHTML = `✓ ${esc(msg.label)}` + (suffix ? ` <span style="opacity:.65;font-size:.7rem;">${esc(suffix)}</span>` : '');
+          }
+          document.getElementById('grp-hint').textContent = msg.label + ' ✓';
+          break;
+        }
+        case 'result':
+          renderGrupos(msg.data);
+          sse.close(); resolve();
+          break;
+        case 'error':
+          sse.close();
+          reject(new Error(msg.message || 'Error desconocido'));
+          break;
+        case 'stream_end':
+          sse.close(); resolve();
+          break;
+        case 'ping':
+          document.getElementById('grp-hint').textContent = 'Procesando… (el modelo de embedding puede estar cargándose)';
+          break;
+      }
+    };
+    sse.onerror = () => { sse.close(); reject(new Error('Conexión interrumpida')); };
+  });
+}
+
+function renderGrupos(data) {
+  const wrap = document.getElementById('grp-results');
+  if (!data || (!data.grupos?.length && !data.ruido?.length)) {
+    wrap.innerHTML = '<p class="empty-hint">No hay suficientes consultas para agrupar (mínimo: tamaño de grupo × 2).</p>';
+    return;
+  }
+
+  _grupoData = data.grupos || [];
+
+  const embedderTxt = data.embedder ? ` · embedder: ${esc(data.embedder)}` : '';
+  let html = `<p style="font-size:.8rem;color:var(--pico-muted-color);margin:.4rem 0 .6rem;">
+    ${data.num_grupos} grupo${data.num_grupos !== 1 ? 's' : ''} · ${data.num_consultas} consultas${embedderTxt}
+  </p>`;
+
+  if (data.grupos.length) {
+    html += '<div class="cluster-grid">';
+    for (let gi = 0; gi < data.grupos.length; gi++) {
+      const g = data.grupos[gi];
+      const noSel = g.sin_seleccion ? ' no-sel' : '';
+      const noSelBadge = g.sin_seleccion
+        ? `<span style="font-size:.72rem;color:var(--pico-del-color,#e74c3c);margin-left:.4rem;" title="Ninguna búsqueda de este grupo terminó en una selección">⚠ sin selecciones</span>`
+        : '';
+      const preview = g.consultas.slice(0, 5).map(q => `<li>${esc(q)}</li>`).join('');
+      const seeAll = g.consultas.length > 0
+        ? `<button class="cluster-see-all" onclick="openGrupoModal(${gi})">Ver todas (${g.consultas.length}) →</button>`
+        : '';
+      const tagsHtml = g.terminos && g.terminos.length
+        ? `<div class="cluster-tags">${g.terminos.map(t => `<span class="cluster-tag">${esc(t)}</span>`).join('')}</div>`
+        : '';
+      html += `
+<div class="cluster-card${noSel}">
+  <div class="cluster-label">${esc(g.etiqueta)}${noSelBadge}</div>
+  ${tagsHtml}
+  <div class="cluster-meta">${g.tamano} consulta${g.tamano!==1?'s':''} · frec. ${g.frecuencia_total} · selec. ${g.selecciones_total}</div>
+  <ul class="cluster-queries">${preview}</ul>
+  ${seeAll}
+</div>`;
+    }
+    html += '</div>';
+  }
+
+  // Noise / outliers section — always shown (open by default)
+  html += `<details open style="margin-top:.85rem;">
+  <summary style="font-size:.85rem;color:var(--pico-muted-color);cursor:pointer;user-select:none;">
+    ${data.ruido.length > 0
+      ? `${data.ruido.length} consulta${data.ruido.length!==1?'s':''} aislada${data.ruido.length!==1?'s':''} (ruido HDBSCAN)`
+      : 'Sin consultas aisladas — HDBSCAN asignó todas a grupos'}
+  </summary>
+  ${data.ruido.length > 0
+    ? `<ul class="noise-list">${data.ruido.map(r => `<li>${esc(r.query)}</li>`).join('')}</ul>`
+    : `<p style="font-size:.82rem;color:var(--pico-muted-color);margin:.4rem 0 .2rem;">Todas las consultas tienen probabilidad de pertenencia ≥ ${Math.round((data.prob_min ?? 0.5) * 100)} %. Si sospechas que alguna consulta no encaja en su grupo, aumenta el tamaño mínimo de grupo para forzar clusters más homogéneos.</p>`
+  }
+</details>`;
+
+  wrap.innerHTML = html;
+}
+
+/* ═════════════════════════════════════ auto-load on page open ══ */
+window.addEventListener('DOMContentLoaded', () => {
+  // Load activity tables automatically if there is data (non-blocking)
+  loadActividadTab();
+});
+</script>
+
+{# ─── Selection signal from search page ──────────────────────────────────── #}
+{#
+  The search template stores busqueda_id on each result and fires POST /api/seleccion
+  when the user clicks a segment timestamp or the resource thumbnail.
+  See search.html for the JS that calls recordSeleccion(busqueda_id, rank, video_id, chunk_idx).
+#}
+{% endblock %}

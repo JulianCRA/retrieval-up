@@ -4,6 +4,7 @@ Interfaz que todo backend debe exponer:
   abrir(db_ruta: str) -> Any
   hash_indexado(db, nombre: str, hash_id: str) -> bool
   escribir_tabla(db, nombre: str, filas: list[dict], dim: int, reclear: bool) -> None
+	finalizar_tabla(db, nombre: str) -> None
 """
 import sys
 
@@ -53,22 +54,26 @@ def escribir_tabla(
 		existe = False
 
 	if not existe:
-		tabla = db.create_table(nombre, data=filas, schema=esquema(dim))
+		db.create_table(nombre, data=filas, schema=esquema(dim))
 		print(f"[OK] Tabla '{nombre}' creada con {len(filas)} filas (dim={dim}).")
-		_crear_indice_ann(tabla)
-		_crear_indice_fts(tabla)
 		return
 
 	tabla = db.open_table(nombre)
 	dim_tabla = tabla.schema.field("vector").type.list_size
 	if dim_tabla != dim:
-		print(
-			f"[ERROR] Dim de la tabla '{nombre}' ({dim_tabla}) "
+		raise RuntimeError(
+			f"Dim de la tabla '{nombre}' ({dim_tabla}) "
 			f"no coincide con dim del lote ({dim})."
 		)
-		sys.exit(1)
 	tabla.add(filas)
 	print(f"[OK] Tabla '{nombre}': agregadas {len(filas)} filas (total={tabla.count_rows()}).")
+
+
+def finalizar_tabla(db: lancedb.DBConnection, nombre: str):
+	if nombre not in _listar(db):
+		print(f"[INFO] Tabla '{nombre}' no existe; se omite finalizacion de indices.")
+		return
+	tabla = db.open_table(nombre)
 	_crear_indice_ann(tabla)
 	_crear_indice_fts(tabla)
 

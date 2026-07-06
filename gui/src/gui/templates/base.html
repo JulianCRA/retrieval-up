@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}retrieval-up{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+  <style>
+    :root { --pico-font-size: 15px; }
+
+    nav.top-nav {
+      padding: 0.5rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      border-bottom: 1px solid var(--pico-muted-border-color);
+      background: var(--pico-background-color);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    nav.top-nav .brand {
+      font-weight: 700;
+      font-size: 1.1rem;
+      text-decoration: none;
+      color: var(--pico-color);
+      white-space: nowrap;
+    }
+    nav.top-nav a { text-decoration: none; color: var(--pico-muted-color); }
+    nav.top-nav a:hover, nav.top-nav a.active { color: var(--pico-primary); }
+
+    main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <nav class="top-nav">
+    <a class="brand" href="/">retrieval-up</a>
+    <a href="/browse"     {% if request.path.startswith('/browse')     %}class="active"{% endif %}>Recursos</a>
+    <a href="/search"     {% if request.path.startswith('/search')     %}class="active"{% endif %}>Búsqueda</a>
+    <a href="/pipeline"   {% if request.path.startswith('/pipeline')   %}class="active"{% endif %}>Pipeline</a>
+    <a href="/analytics"  {% if request.path.startswith('/analytics')  %}class="active"{% endif %}>Analítica</a>
+  </nav>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

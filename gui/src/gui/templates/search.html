@@ -1,0 +1,649 @@
+{% extends "base.html" %}
+{% block title %}Búsqueda — retrieval-up{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Form row ── */
+  .search-form-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+  }
+  .search-form-row input[type="search"] {
+    flex: 1;
+    margin: 0;
+    font-size: 1.05rem;
+  }
+  .search-form-row button { margin: 0; white-space: nowrap; }
+
+  /* ── Params grid ── */
+  .params-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 0.75rem 1.25rem;
+    align-items: end;
+  }
+  .params-grid .field-row { margin: 0; }
+  .params-grid select,
+  .params-grid input[type="number"],
+  .params-grid input[type="range"] { margin-bottom: 0; }
+
+  /* ── Sort bar ── */
+  .sort-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.85rem 0 0.6rem;
+    flex-wrap: wrap;
+  }
+  .sort-bar > label { font-size: 0.85rem; color: var(--pico-muted-color); flex-shrink: 0; }
+  .sort-chip {
+    padding: 0.2rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    border: 1px solid var(--pico-muted-border-color);
+    color: var(--pico-muted-color);
+    cursor: pointer;
+    background: transparent;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .sort-chip:hover { border-color: var(--pico-primary); color: var(--pico-primary); }
+  .sort-chip.active {
+    border-color: var(--pico-primary);
+    color: var(--pico-primary-inverse);
+    background: var(--pico-primary);
+    font-weight: 600;
+  }
+
+  /* ── Phase progress ── */
+  #search-progress { margin: 0.55rem 0 0.1rem; }
+  #phase-chips {
+    display: flex; flex-wrap: wrap; gap: 0.35rem;
+    align-items: center; padding: 0.35rem 0 0.1rem;
+  }
+  .phase-chip {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.2rem 0.55rem; border-radius: 999px; font-size: 0.78rem;
+    border: 1px solid var(--pico-muted-border-color);
+    color: var(--pico-muted-color); background: transparent;
+    white-space: nowrap; transition: all 0.2s;
+  }
+  .phase-chip.running {
+    border-color: var(--pico-primary); color: var(--pico-primary);
+    background: var(--pico-primary-background); font-weight: 600;
+  }
+  .phase-chip.done {
+    border-color: var(--pico-ins-color, #2d9a4e);
+    color: var(--pico-ins-color, #2d9a4e);
+    background: color-mix(in srgb, var(--pico-ins-color, #2d9a4e) 10%, transparent);
+  }
+  @keyframes s-spin { to { transform: rotate(360deg); } }
+  .phase-chip.running .phase-icon { display: inline-block; animation: s-spin 1s linear infinite; }
+  #progress-hint {
+    font-size: .79rem; color: var(--pico-muted-color);
+    margin: .05rem 0 .5rem; min-height: 1.1rem;
+  }
+
+  /* ── Result card ── */
+  .result-card {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    grid-template-rows: auto;
+    align-items: center;
+    padding: 0;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    overflow: hidden;
+    background: var(--pico-card-background-color);
+    margin-bottom: 0.85rem;
+    transition: box-shadow 0.15s;
+  }
+  .result-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.1); }
+
+  @media (max-width: 560px) {
+    .result-card { grid-template-columns: 1fr; }
+  }
+
+  .result-thumb-wrap {
+    width: 200px;
+    background: #000;
+  }
+  @media (max-width: 560px) {
+    .result-thumb-wrap { width: 100%; }
+  }
+
+  .result-thumb {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: contain;
+    display: block;
+  }
+  .result-thumb-placeholder {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--pico-muted-border-color);
+    color: var(--pico-muted-color);
+    font-size: 2rem;
+  }
+
+  .result-body {
+    padding: 0.7rem 0.85rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+  .result-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .result-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    line-height: 1.35;
+    min-width: 0;
+  }
+  .result-rank {
+    flex-shrink: 0;
+    font-size: 0.73rem;
+    color: var(--pico-muted-color);
+    font-weight: 600;
+    background: var(--pico-muted-border-color);
+    border-radius: 999px;
+    padding: 0.05rem 0.5rem;
+    white-space: nowrap;
+  }
+  .result-meta {
+    font-size: 0.79rem;
+    color: var(--pico-muted-color);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.65rem;
+  }
+
+  /* ── Segments ── */
+  .result-segments {
+    font-size: 0.87rem;
+    line-height: 1.65;
+    margin-top: 0.3rem;
+    color: var(--pico-color);
+  }
+  .seg-link {
+    color: inherit;
+    text-decoration: none;
+    border-radius: 2px;
+    padding: 0.05rem 0.1rem;
+    margin: 0 -0.1rem;
+    transition: background 0.1s;
+  }
+  .seg-link:hover {
+    background: color-mix(in srgb, var(--pico-primary) 18%, transparent);
+  }
+  .result-text {
+    font-size: 0.87rem;
+    line-height: 1.55;
+    color: var(--pico-color);
+    margin-top: 0.2rem;
+  }
+
+  /* ── Scores ── */
+  .scores-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.65rem;
+    font-size: 0.73rem;
+    color: var(--pico-muted-color);
+    margin-top: 0.1rem;
+  }
+  .score-badge { white-space: nowrap; }
+  .score-badge.active { color: var(--pico-primary); font-weight: 600; }
+
+  /* ── States ── */
+  #search-error {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--pico-del-color, #e74c3c);
+    border-radius: var(--pico-border-radius);
+    color: var(--pico-del-color, #e74c3c);
+    margin: 0.75rem 0;
+  }
+  .results-meta { font-size: 0.87rem; color: var(--pico-muted-color); }
+  .empty-state { text-align: center; padding: 3rem 1rem; color: var(--pico-muted-color); }
+  #wrrf-row { display: none; }
+</style>
+
+<h2>Búsqueda semántica</h2>
+
+{% if not tablas %}
+<article>
+  <p>⚠️ No hay tablas indexadas. Procesa y vectoriza contenido primero desde <a href="/pipeline">Pipeline</a>.</p>
+</article>
+{% endif %}
+
+{# ── Search form ── #}
+<div class="search-form-row">
+  <input type="search" id="q" placeholder="Escribir consulta…" autocomplete="off"
+         onkeydown="if(event.key==='Enter')doSearch()" {% if not tablas %}disabled{% endif %} />
+  <button id="search-btn" onclick="doSearch()" {% if not tablas %}disabled{% endif %}>Buscar</button>
+</div>
+
+<details class="param-group">
+  <summary>Parámetros</summary>
+  <div class="inner params-grid">
+
+    <div class="field-row">
+      <label class="field-label" for="embedder">Embedder / Tabla</label>
+      <select id="embedder">
+        {% for t in tablas %}
+        <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+        {% if not tablas %}
+        <option value="" disabled selected>— sin tablas —</option>
+        {% endif %}
+      </select>
+    </div>
+
+    <div class="field-row">
+      <label class="field-label" for="modo">Modo</label>
+      <select id="modo" onchange="onModeChange()">
+        <option value="rrf">RRF — híbrido</option>
+        <option value="wrrf">wRRF — híbrido ponderado</option>
+        <option value="denso">Semántico (coseno)</option>
+        <option value="bm25">Sintáctico (BM25)</option>
+      </select>
+    </div>
+
+    <div class="field-row" id="wrrf-row">
+      <label class="field-label" for="peso-sem">Peso semántico (0 – 1)</label>
+      <div style="display:flex;gap:.4rem;align-items:center;">
+        <input type="number" id="peso-sem" min="0" max="1" step="0.05" value="0.70"
+               style="width:5.5rem;margin:0;"
+               oninput="document.getElementById('peso-range').value=this.value" />
+        <input type="range" id="peso-range" min="0" max="1" step="0.05" value="0.70"
+               style="flex:1;margin:0;"
+               oninput="document.getElementById('peso-sem').value=parseFloat(this.value).toFixed(2)" />
+      </div>
+    </div>
+
+    <div class="field-row">
+      <label class="field-label" for="top-k">Top K</label>
+      <input type="number" id="top-k" min="1" max="50" value="10" />
+    </div>
+
+    <div class="field-row">
+      <label class="field-label" for="reranker">Reranker</label>
+      <select id="reranker">
+        <option value="">Ninguno</option>
+        {% for r in rerankers %}
+        <option value="{{ r }}">{{ r }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field-row" style="display:flex;align-items:flex-end;padding-bottom:.2rem;">
+      <label class="check-label">
+        <input type="checkbox" id="forzar-cpu" role="switch" />
+        Forzar CPU
+      </label>
+    </div>
+
+  </div>
+</details>
+
+{# ── Search progress ── #}
+<div id="search-progress" hidden>
+  <div id="phase-chips"></div>
+  <p id="progress-hint"></p>
+</div>
+
+{# ── Error ── #}
+<div id="search-error" role="alert" hidden></div>
+
+{# ── Results header (meta + sort bar) ── #}
+<div id="results-header" hidden>
+  <p class="results-meta" id="results-meta"></p>
+  <div class="sort-bar">
+    <label>Ordenar por:</label>
+    <div id="sort-chips" style="display:flex;flex-wrap:wrap;gap:.35rem;"></div>
+  </div>
+</div>
+
+{# ── Results ── #}
+<div id="results-container"></div>
+
+<script>
+/* ── State ── */
+let _results      = [];
+let _sortOpts     = [];
+let _curSort      = '';
+let _ctx          = {};   // { modo, reranker }
+let _totalElapsed = null;
+let _busquedaId   = null; // persisted search id for analytics
+
+/* ── Utils ── */
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function fmtTs(sec) {
+  if (sec == null || isNaN(sec)) return '?';
+  const t = Math.max(0, sec);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = Math.floor(t % 60);
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function fmtDur(sec) {
+  if (sec == null || isNaN(sec) || sec < 0) return '?';
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+/** Build a YouTube timestamp URL from a base URI and seconds, or null if not YouTube. */
+function ytUrl(uri, sec) {
+  if (!uri) return null;
+  if (!/youtube\.com\/watch|youtu\.be\//.test(uri)) return null;
+  const t = Math.max(0, Math.floor(sec ?? 0));
+  return uri + (uri.includes('?') ? '&' : '?') + 't=' + t;
+}
+
+function sortKey(item, by) {
+  switch (by) {
+    case 'reranker':   return item.score_rerank ?? -1e9;
+    case 'rrf':        return item.score        ?? -1e9;
+    case 'semantico':  return item.score_denso  ?? (item.score ?? -1e9);
+    case 'sintactico': return item.score_bm25   ?? (item.score ?? -1e9);
+    default:           return item.score        ?? -1e9;
+  }
+}
+
+function sortLabel(key) {
+  return { reranker: 'Reranker', rrf: 'RRF / wRRF', semantico: 'Semántico', sintactico: 'Sintáctico' }[key] || key;
+}
+
+/* ── onModeChange ── */
+function onModeChange() {
+  const m = document.getElementById('modo').value;
+  const wrfRow = document.getElementById('wrrf-row');
+  wrfRow.style.display = m === 'wrrf' ? '' : 'none';
+  if (m === 'wrrf') {
+    // ensure params panel is open so the weight field is visible
+    const details = document.querySelector('details.param-group');
+    if (details) details.open = true;
+  }
+}
+
+/* ── Phase progress ── */
+const PHASE_SHORT = {
+  table:        'Índice',
+  encode_query: 'Encoder',
+  bm25_tokenize:'BM25 tokens',
+  search_dense: 'Búsqueda densa',
+  search_bm25:  'Búsqueda BM25',
+  fusion:       'Fusión',
+  rerank:       'Reranker',
+};
+
+function addPhase(phase, label) {
+  const chip = document.createElement('span');
+  chip.className = 'phase-chip running';
+  chip.id = 'chip-' + phase;
+  chip.innerHTML = `<span class="phase-icon">⧘<\/span> ${esc(label)}`;
+  document.getElementById('phase-chips').appendChild(chip);
+  document.getElementById('search-progress').hidden = false;
+}
+
+function completePhase(phase, elapsed, n) {
+  const chip = document.getElementById('chip-' + phase);
+  if (!chip) return;
+  chip.className = 'phase-chip done';
+  const short = PHASE_SHORT[phase] || phase;
+  const nPart = (n != null) ? ` (${n})` : '';
+  chip.innerHTML = `✓ ${esc(short)} <span style="opacity:.65;font-size:.7rem;">${elapsed.toFixed(3)}s${nPart}<\/span>`;
+}
+
+function resetProgress() {
+  document.getElementById('phase-chips').innerHTML = '';
+  document.getElementById('progress-hint').textContent = '';
+  document.getElementById('search-progress').hidden = true;
+}
+
+/* ── Render sort chips ── */
+function renderChips() {
+  const c = document.getElementById('sort-chips');
+  c.innerHTML = '';
+  for (const o of _sortOpts) {
+    const b = document.createElement('button');
+    b.className = 'sort-chip' + (o === _curSort ? ' active' : '');
+    b.textContent = sortLabel(o);
+    b.onclick = () => { _curSort = o; renderResults(); };
+    c.appendChild(b);
+  }
+}
+
+/* ── Render results ── */
+function renderResults() {
+  renderChips();
+  const sorted = [..._results].sort((a, b) => sortKey(b, _curSort) - sortKey(a, _curSort));
+  const el = document.getElementById('results-container');
+
+  if (!sorted.length) {
+    el.innerHTML = '<div class="empty-state"><p>No se encontraron resultados.</p></div>';
+    return;
+  }
+
+  el.innerHTML = sorted.map((item, i) => {
+    const rank     = i + 1;
+    const durChunk = (item.fin != null && item.inicio != null) ? item.fin - item.inicio : null;
+
+    /* ── thumbnail ── */
+    const thumb = item.has_thumbnail
+      ? `<div class="result-thumb-wrap"><img class="result-thumb" src="/thumbnail/${esc(item.hash)}" alt="" loading="lazy"
+           style="cursor:pointer;" onclick="recordSeleccion(${rank}, '${item.hash}', ${item.chunk_idx ?? 'null'})" /></div>`
+      : `<div class="result-thumb-wrap"><div class="result-thumb-placeholder" aria-hidden="true" style="cursor:pointer;"
+           onclick="recordSeleccion(${rank}, '${item.hash}', ${item.chunk_idx ?? 'null'})">▶</div></div>`;
+
+    /* ── segments or fallback text ── */
+    let contentHtml = '';
+    const segs = Array.isArray(item.segmentos) ? item.segmentos : [];
+    if (segs.length) {
+      const inlines = segs.map(seg => {
+        const url = ytUrl(item.uri, seg.inicio);
+        const txt = esc(seg.texto ?? '');
+        const onClick = `onclick="recordSeleccion(${rank}, '${item.hash}', ${item.chunk_idx ?? 'null'})"`;
+        return url
+          ? `<a class="seg-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer" ${onClick}>${txt}</a>`
+          : txt;
+      }).join(' ');
+      contentHtml = `<p class="result-segments">${inlines}</p>`;
+    } else if (item.texto) {
+      contentHtml = `<p class="result-text">${esc(item.texto)}</p>`;
+    }
+
+    /* ── scores ── */
+    const active = _curSort;
+    const badges = [];
+
+    const fmt = (label, score, rank, key) => {
+      const scoreTxt = score != null ? score.toFixed(label === 'rrf' ? 5 : 3) : '?';
+      const rankTxt  = rank  != null ? ` #${rank}` : '';
+      return `<span class="score-badge${active === key ? ' active' : ''}">${label}: ${scoreTxt}${rankTxt}</span>`;
+    };
+
+    if (item.score_rerank != null)
+      badges.push(fmt('reranker', item.score_rerank, item.rank_reranker, 'reranker'));
+    if (_ctx.modo === 'rrf' || _ctx.modo === 'wrrf') {
+      if (item.score != null)
+        badges.push(fmt('rrf', item.score, item.rank_fusion, 'rrf'));
+    }
+    if (item.score_denso != null)
+      badges.push(fmt('sem', item.score_denso, item.rank_denso, 'semantico'));
+    else if (_ctx.modo === 'denso' && item.score != null)
+      badges.push(fmt('sem', item.score, item.rank_fusion, 'semantico'));
+    if (item.score_bm25 != null)
+      badges.push(fmt('bm25', item.score_bm25, item.rank_bm25, 'sintactico'));
+    else if (_ctx.modo === 'bm25' && item.score != null)
+      badges.push(fmt('bm25', item.score, item.rank_fusion, 'sintactico'));
+
+    const scoresHtml = badges.length
+      ? `<div class="scores-row">${badges.join('')}</div>` : '';
+
+    /* ── meta row ── */
+    const metaParts = [];
+    if (item.inicio != null)           metaParts.push(`⏱ ${fmtTs(item.inicio)}`);
+    if (durChunk   != null)            metaParts.push(`⧖ ${fmtDur(durChunk)}`);
+    if (item.duracion_recurso != null) metaParts.push(`📹 ${fmtDur(item.duracion_recurso)}`);
+    if (item.fuente)                   metaParts.push(esc(item.fuente));
+    const metaHtml = metaParts.length
+      ? `<div class="result-meta">${metaParts.map(p => `<span>${p}</span>`).join('')}</div>` : '';
+
+    return `
+<article class="result-card">
+  ${thumb}
+  <div class="result-body">
+    <div class="result-head">
+      <div class="result-title">${esc(item.titulo ?? item.hash ?? '?')}</div>
+      <span class="result-rank">#${rank}</span>
+    </div>
+    ${metaHtml}
+    ${contentHtml}
+    ${scoresHtml}
+  </div>
+</article>`;
+  }).join('');
+}
+
+/* ── SSE streaming ── */
+function streamSearch(jobId) {
+  return new Promise((resolve, reject) => {
+    const sse = new EventSource(`/search/stream/${encodeURIComponent(jobId)}`);
+
+    sse.onmessage = (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+
+      switch (msg.type) {
+        case 'phase_start':
+          addPhase(msg.phase, msg.label);
+          break;
+
+        case 'phase_done':
+          completePhase(msg.phase, msg.elapsed, msg.n ?? null);
+          break;
+
+        case 'results': {
+          const d = msg.data;
+          _results      = d.resultados ?? [];
+          _sortOpts     = d.sort_options ?? [];
+          _curSort      = _sortOpts[0] ?? '';
+          _ctx          = { modo: d.modo, reranker: d.reranker };
+          _totalElapsed = d.total_elapsed ?? null;
+          _busquedaId   = d.busqueda_id ?? null;
+
+          const rTxt  = d.reranker ? `, reranker: ${d.reranker}` : '';
+          const timTxt = _totalElapsed != null ? ` · ⏱ ${_totalElapsed.toFixed(2)}s total` : '';
+          document.getElementById('results-meta').textContent =
+            `${_results.length} resultado${_results.length !== 1 ? 's' : ''} · embedder: ${d.embedder} · modo: ${d.modo}${rTxt}${timTxt}`;
+          document.getElementById('results-header').hidden = false;
+          renderResults();
+          break;
+        }
+
+        case 'error':
+          sse.close();
+          reject(new Error(msg.message || 'Error desconocido'));
+          break;
+
+        case 'stream_end':
+          sse.close();
+          resolve();
+          break;
+
+        case 'ping':
+          document.getElementById('progress-hint').textContent = 'En espera…';
+          break;
+      }
+    };
+
+    sse.onerror = () => {
+      sse.close();
+      reject(new Error('Conexión interrumpida'));
+    };
+  });
+}
+
+/* ── Selection tracking ── */
+function recordSeleccion(rank, videoId, chunkIdx) {
+  if (!_busquedaId) return;
+  fetch('/api/seleccion', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      busqueda_id: _busquedaId,
+      rank:        rank,
+      video_id:    videoId,
+      chunk_idx:   chunkIdx ?? null,
+    }),
+  }).catch(() => {/* fire-and-forget */});
+}
+
+/* ── doSearch ── */
+async function doSearch() {
+  const q = document.getElementById('q').value.trim();
+  if (!q) { document.getElementById('q').focus(); return; }
+
+  const body = {
+    query:          q,
+    embedder:       document.getElementById('embedder').value,
+    modo:           document.getElementById('modo').value,
+    top_k:          parseInt(document.getElementById('top-k').value) || 10,
+    reranker:       document.getElementById('reranker').value || null,
+    peso_semantica: parseFloat(document.getElementById('peso-sem').value),
+    forzar_cpu:     document.getElementById('forzar-cpu').checked,
+  };
+
+  /* Reset UI */
+  resetProgress();
+  _busquedaId   = null;
+  document.getElementById('search-error').hidden   = true;
+  document.getElementById('results-header').hidden = true;
+  document.getElementById('results-container').innerHTML = '';
+  const btn = document.getElementById('search-btn');
+  btn.setAttribute('aria-busy', 'true');
+  btn.disabled = true;
+
+  try {
+    /* Step 1 — submit job */
+    const resp = await fetch('/search/submit', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    const jobData = await resp.json();
+    if (!resp.ok || jobData.error) throw new Error(jobData.error || `HTTP ${resp.status}`);
+
+    /* Step 2 — stream progress + results */
+    await streamSearch(jobData.job_id);
+
+  } catch (e) {
+    const el = document.getElementById('search-error');
+    el.textContent = '⚠ ' + e.message;
+    el.hidden = false;
+  } finally {
+    btn.removeAttribute('aria-busy');
+    btn.disabled = false;
+  }
+}
+</script>
+{% endblock %}

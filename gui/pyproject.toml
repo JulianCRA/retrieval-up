@@ -3,14 +3,19 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "compartido"
+name = "gui"
 version = "0.1.0"
-description = "Datos compartidos y funciones auxiliares para manipulación de archivos JSON"
+description = "Web GUI for browsing, indexing, searching and insights"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    "psutil>=5.9",
-    "transformers>=5.0,<6.0",
+    "flask>=3.0",
+    "compartido",
+    "recuperador",
+    "insights",
 ]
+
+[project.scripts]
+gui = "gui.__main__:main"
 
 [tool.setuptools.package-dir]
 "" = "src"
