@@ -96,14 +96,16 @@ Guarda el resultado en `correcciones.json`.
 Divide el texto corregido en chunks para su posterior vectorización e indexación.
 
 ```bash
-frag --hash <hash> [--estrategia tamano_fijo|semantico] [opciones]
+frag --hash <hash> --embedder <id> [--estrategia tamano_fijo|semantico] [opciones]
 ```
+
+`--embedder` es obligatorio y debe coincidir con el que se usará en la vectorización. Los IDs disponibles son los mismos que en el vectorizador (ver tabla más abajo).
 
 **Estrategia `tamano_fijo`** (default):
 
 | Opción | Default | Descripción |
 |--------|---------|-------------|
-| `--max-tokens` | 512 | Tamaño máximo del chunk en tokens estimados |
+| `--chunk-tokens N` | según modelo | Tamaño máximo del chunk en tokens reales del modelo |
 | `--overlap PCT` | 20 | Solapamiento entre chunks consecutivos (%) |
 
 **Estrategia `semantico`**:
@@ -112,16 +114,103 @@ frag --hash <hash> [--estrategia tamano_fijo|semantico] [opciones]
 |--------|---------|-------------|
 | `--umbral` | 0.5 | Similitud coseno mínima para corte temático (0–1) |
 | `--min-tokens` | 64 | Tamaño mínimo de chunk antes de fusionar |
-| `--max-tokens` | 512 | Límite de seguridad por chunk |
+| `--chunk-tokens N` | según modelo | Límite de seguridad por chunk |
+| `--boundary-embedder` | mismo que `--embedder` | Modelo alternativo solo para detectar bordes |
 
-Usa el modelo `paraphrase-multilingual-MiniLM-L12-v2` para embeddings. Guarda los fragmentos en `fragmentos.json`.
+Guarda los fragmentos en `fragmentos.json`.
 
 **Dependencias:** `sentence-transformers`, `numpy`
 
 ---
 
-### 6–8. `vectorizador`, `indexador`, `recuperador`
-En desarrollo.
+### 6. `vectorizador`
+Calcula embeddings densos por fragmento y los persiste para su indexación.
+
+```bash
+vect --hash <hash> [--embedder <id>] [--batch-size N] [--forzar-cpu]
+```
+
+Si no se indica `--embedder`, se lee `embedder_objetivo` desde `fragmentos.json`.
+
+**Embedders disponibles:**
+
+| ID | Modelo HF | Dim | Ventana | Notas |
+|----|-----------|-----|---------|-------|
+| `granite-107m` | `ibm-granite/granite-embedding-107m-multilingual` | 384 | 512 | Muy liviano, ~210 MB, ideal CPU |
+| `e5-large-instruct` | `intfloat/multilingual-e5-large-instruct` | 1024 | 512 | Buena calidad ES/EN, requiere instrucción en query |
+| `bge-m3` | `BAAI/bge-m3` | 1024 | 8192 | Excelente multilingüe, ventana 8k |
+| `jina-v3` | `jinaai/jina-embeddings-v3` | 1024 | 8192 | Muy fuerte en español, Matryoshka |
+| `qwen3-0.6b` | `Qwen/Qwen3-Embedding-0.6B` | 1024 | 32768 | Top MTEB multilingüe, ventana 32k, requiere GPU |
+
+Guarda los embeddings en `vectores.json`.
+
+**Dependencias:** `sentence-transformers`, `transformers`, `numpy`
+
+---
+
+### 7. `indexador`
+Construye un índice híbrido (denso + BM25) a partir de los embeddings y fragmentos.
+
+```bash
+indexar --hash <hash> [--embedder <id>] [--backend lance|qdrant|milvus] [--tag CLAVE=VALOR]
+```
+
+- El backend por defecto es `lance` (LanceDB local, sin servidor).
+- `--tag` permite adjuntar metadata a todos los chunks del lote (repetible).
+- Persiste el corpus en `indice.db` (SQLite) y los vectores en `indice/` (LanceDB).
+
+**Dependencias:** `lancedb`, `pyarrow`, `tantivy`, `numpy`, `spacy`, `es_core_news_lg`
+
+---
+
+### 8. `recuperador`
+Búsqueda híbrida (semántica + BM25) sobre el índice.
+
+```bash
+recuperar --query <texto> --embedder <id> [--modo rrf|wrrf|denso|bm25] [--reranker mmarco|bge|jina] [--top-k N]
+```
+
+| Modo | Descripción |
+|------|-------------|
+| `denso` (default) | Solo similitud coseno |
+| `bm25` | Solo keywords |
+| `rrf` | Fusión de ranks (Reciprocal Rank Fusion) |
+| `wrrf` | RRF ponderado (`--peso-semantica`, default 0.7) |
+
+Los rerankers (`mmarco`, `bge`, `jina`) reordenan los resultados con un cross-encoder.
+
+Guarda cada consulta en `resultados.db` para trazabilidad.
+
+**Dependencias:** `lancedb`, `tantivy`, `sentence-transformers`, `numpy`, `spacy`
+
+---
+
+### 9. `insights`
+Módulo de analítica docente: vista agregada del corpus indexado y del comportamiento de búsqueda. Opera exclusivamente en lectura sobre `indice.db` y `resultados.db`.
+
+```bash
+insights corpus                          # resumen del corpus indexado
+insights encontrados [--top-n N]         # videos más devueltos por el sistema
+insights seleccionados [--top-n N]       # videos más seleccionados por usuarios
+insights comparar                        # encontrados vs. seleccionados
+insights grupos --embedder <id>          # agrupación HDBSCAN + etiquetas KeyBERT
+insights todo                            # todas las salidas anteriores
+```
+
+Exporta CSV y JSON a `resultados/insights/`.
+
+**Dependencias:** `numpy`, `scikit-learn`, `hdbscan`, `umap-learn`, `keybert`, `sentence-transformers`
+
+---
+
+### `gui`
+Interfaz web local para buscar, explorar resultados y consultar analíticas.
+
+```bash
+gui
+```
+
+**Dependencias:** `flask`, `recuperador`, `insights`
 
 ---
 
@@ -145,6 +234,11 @@ pip install -e "03. transcriptor/[whisper]"      # + Whisper
 pip install -e "03. transcriptor/[cohere-transcribe]"  # + Cohere
 pip install -e "04. corrector de texto/"
 pip install -e "05. fragmentador/"
+pip install -e "06. vectorizador/"
+pip install -e "07. indexador/"
+pip install -e "08. recuperador/"
+pip install -e "09. insights/"
+pip install -e gui/
 ```
 
 ---
@@ -164,8 +258,17 @@ transcribir --hash <hash> -m whisper:turbo
 # 4. Corregir puntuación
 corr --hash <hash>
 
-# 5. Fragmentar
-frag --hash <hash> --estrategia semantico --umbral 0.4
+# 5. Fragmentar (el --embedder determina el tokenizador y el tamaño de chunk)
+frag --hash <hash> --embedder bge-m3 --estrategia semantico --umbral 0.4
+
+# 6. Vectorizar
+vect --hash <hash>
+
+# 7. Indexar
+indexar --hash <hash>
+
+# 8. Buscar
+recuperar --query "¿Cómo se aplica el teorema de Bayes?" --embedder bge-m3 --modo rrf
 ```
 
 El `<hash>` se obtiene de la salida del descargador o consultando `descargas/registros.json`.
@@ -182,7 +285,16 @@ descargas/
     ├── segmentos.json          # intervalos de voz detectados por el procesador
     ├── transcripciones.json    # texto por segmento del transcriptor
     ├── correcciones.json       # texto con puntuación restaurada
-    └── fragmentos.json         # chunks listos para vectorizar
+    ├── fragmentos.json         # chunks listos para vectorizar
+    └── vectores.json           # embeddings densos por chunk
+
+indice/
+├── indice.db                   # SQLite: corpus, chunks, tags, duracion
+└── <embedder>/                 # tablas LanceDB (una por embedder)
+
+resultados/
+├── resultados.db               # SQLite: historial de búsquedas y selecciones
+└── insights/                   # exportaciones CSV/JSON del módulo insights
 ```
 
 ---
